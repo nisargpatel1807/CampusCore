@@ -1,0 +1,7 @@
+POST http://localhost:3000/api/auth/register
+{
+  "name": "Admin",
+  "id_no": "1001",
+  "password": "123",
+  "role": "admin"
+}
