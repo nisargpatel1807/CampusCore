@@ -368,10 +368,12 @@ router.post("/assignments/:id/submit", authMiddleware, pdfUpload.single("file"),
 router.get("/service-requests", authMiddleware, async (req, res) => {
   try {
     const requests = await ServiceRequest.find({ student: req.user.id })
+      .populate("assignedStaff", "name email mobile department active")
       .sort({ createdAt: -1 })
       .lean();
     res.status(200).json(requests || []);
   } catch (err) {
+    console.error("Fetch Student Helpdesk:", err);
     res.status(500).json({ message: "Failed to load requests." });
   }
 });
@@ -386,45 +388,52 @@ router.post("/service-requests", authMiddleware, photoUpload.array("photos", 3),
     }
 
     const allowedCategories = [
-      "Projector Issue",
-      "Computer Breakdown",
-      "Fan / AC Problem",
-      "Classroom Light",
-      "Washroom Maintenance",
-      "Wi-Fi Connectivity",
+      "Projector Issue", "Computer Breakdown", "Fan / AC Problem",
+      "Classroom Light", "Washroom Maintenance", "Wi-Fi Connectivity",
     ];
-
     const category = String(req.body.category || "").trim();
     const location = String(req.body.location || "").trim();
     const description = String(req.body.description || "").trim();
+    const confirmGenuine = String(req.body.confirmGenuine || "false") === "true";
 
     if (!allowedCategories.includes(category)) {
       if (req.files?.length) req.files.forEach((file) => { if (file?.path && fs.existsSync(file.path)) fs.unlinkSync(file.path); });
       return res.status(400).json({ message: "Please select a valid complaint category." });
     }
-
     if (location.length < 2 || location.length > 100) {
       if (req.files?.length) req.files.forEach((file) => { if (file?.path && fs.existsSync(file.path)) fs.unlinkSync(file.path); });
       return res.status(400).json({ message: "Location must be between 2 and 100 characters." });
     }
-
     if (description.length < 10 || description.length > 1000) {
       if (req.files?.length) req.files.forEach((file) => { if (file?.path && fs.existsSync(file.path)) fs.unlinkSync(file.path); });
       return res.status(400).json({ message: "Description must be between 10 and 1000 characters." });
     }
+    if (!confirmGenuine) {
+      if (req.files?.length) req.files.forEach((file) => { if (file?.path && fs.existsSync(file.path)) fs.unlinkSync(file.path); });
+      return res.status(400).json({ message: "Please confirm that this complaint is genuine before submitting." });
+    }
 
+    for (const file of req.files || []) {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
+        if (req.files?.length) req.files.forEach((f) => { if (f?.path && fs.existsSync(f.path)) fs.unlinkSync(f.path); });
+        return res.status(400).json({ message: "Complaint photos must be JPG, PNG or WEBP." });
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        if (req.files?.length) req.files.forEach((f) => { if (f?.path && fs.existsSync(f.path)) fs.unlinkSync(f.path); });
+        return res.status(400).json({ message: "Each complaint photo must be 5 MB or smaller." });
+      }
+    }
+
+    // No daily request limit. Keep the existing anti-spam duplicate protection.
     const duplicate = await ServiceRequest.findOne({
       student: student._id,
       category,
       location,
-      status: { $in: ["Assigned", "In Progress", "Awaiting Verification"] },
+      status: { $in: ["Pending Review", "Assigned", "In Progress", "Awaiting Verification"] },
     }).lean();
-
     if (duplicate) {
       if (req.files?.length) req.files.forEach((file) => { if (file?.path && fs.existsSync(file.path)) fs.unlinkSync(file.path); });
-      return res.status(409).json({
-        message: "You already have an active complaint for the same issue and location.",
-      });
+      return res.status(409).json({ message: "You already have an active complaint for the same issue and location." });
     }
 
     const photoUrls = (req.files || []).map((file) => `/uploads/${file.filename}`);
@@ -435,10 +444,28 @@ router.post("/service-requests", authMiddleware, photoUpload.array("photos", 3),
       description,
       photoUrl: photoUrls[0] || "",
       photoUrls,
-      status: "Assigned",
+      status: "Pending Review",
+      history: [{
+        action: "Request submitted",
+        fromStatus: "",
+        toStatus: "Pending Review",
+        actorType: "student",
+        actorName: student.name,
+        note: "Student submitted a helpdesk request.",
+      }],
     });
-    const admins = await User.find({ role:"admin", status:true }).select("_id").lean();
-    if(admins.length) await Notification.insertMany(admins.map(a=>({ recipient:a._id, recipientRole:"admin", type:"HELPDESK", title:"New Helpdesk Request", message:`${student.name} submitted a ${category} request for ${location}.`, link:"/admin/dashboard?open=helpdesk" })));
+
+    const admins = await User.find({ role: "admin", status: true }).select("_id").lean();
+    if (admins.length) {
+      await Notification.insertMany(admins.map((admin) => ({
+        recipient: admin._id,
+        recipientRole: "admin",
+        type: "HELPDESK",
+        title: "New Helpdesk Request",
+        message: `${student.name} submitted a ${category} request for ${location}.`,
+        link: `/admin/dashboard?open=helpdesk&ticketId=${request._id}`,
+      })));
+    }
 
     res.status(201).json({ message: "Complaint registered successfully. 🛠️", request });
   } catch (err) {

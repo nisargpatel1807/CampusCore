@@ -2,9 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
-require("dotenv").config({
-  path: path.join(__dirname, ".env"),
-});
+require("dotenv").config();
 const connectDB = require("./db");
 
 const app = express();
@@ -24,12 +22,14 @@ app.use("/api/student", require("./routes/student"));
 app.use("/api/notifications", require("./routes/notifications"));
 app.use("/api/study-planner", require("./routes/studyPlanner"));
 app.use("/api/campus-notices", require("./routes/campusNotices"));
+app.use("/api/helpdesk-staff", require("./routes/helpdeskStaff"));
 
 app.get("/", (req, res) => res.json({ message: "CampusCore Backend API Running 🚀" }));
 app.use((req, res) => res.status(404).json({ message: "API route not found" }));
 app.use((err, req, res, next) => {
   console.error("Global Error Handler:", err);
   if (err.code === "LIMIT_FILE_SIZE") return res.status(400).json({ message: "Uploaded file is larger than the allowed size." });
+  if (err.code === "LIMIT_FILE_COUNT") return res.status(400).json({ message: "Too many files uploaded." });
   if (err.name === "MulterError") return res.status(400).json({ message: err.message || "File upload failed." });
   return res.status(err.status || 500).json({ message: err.message || "Internal Server Error" });
 });

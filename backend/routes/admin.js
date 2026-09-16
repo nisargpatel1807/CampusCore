@@ -86,6 +86,20 @@ const validatePassword = (value) => {
   return null;
 };
 
+const validateStaffId = (value) => {
+  const v = clean(value).toUpperCase();
+  if (v.length < 3 || v.length > 30) return "Staff ID must be between 3 and 30 characters.";
+  if (!idRegex.test(v)) return "Staff ID may contain only letters, numbers, hyphens and underscores.";
+  return null;
+};
+
+const sanitizeStaff = (staff) => {
+  if (!staff) return staff;
+  const value = typeof staff.toObject === "function" ? staff.toObject() : { ...staff };
+  delete value.password;
+  return value;
+};
+
 const getCourseByName = async (courseName) => {
   const v = clean(courseName);
   return Course.findOne({ courseName: v });
@@ -605,24 +619,31 @@ router.put("/toggle/:id", async (req, res) => {
 });
 
 // ======================= HELPDESK =======================
+const pushHelpdeskHistory = ({ request, action, fromStatus, toStatus, actorType, actorName, staffId = null, note = "" }) => {
+  if (!Array.isArray(request.history)) request.history = [];
+  request.history.push({ action, fromStatus: fromStatus || "", toStatus: toStatus || "", actorType, actorName: actorName || "System", staffId, note: note || "", createdAt: new Date() });
+};
+
 router.get("/service-requests", async (req, res) => {
   try {
     const requests = await ServiceRequest.find()
-      .populate({ path: "student", model: User, select: "name id_no course semester profilePhoto" })
+      .populate({ path: "student", model: User, select: "name id_no course semester email profilePhoto" })
       .populate({ path: "assignedTo", model: User, select: "name id_no role department profilePhoto" })
-      .populate({ path: "assignedStaff", model: HelpdeskStaff, select: "name email mobile department active" })
+      .populate({ path: "assignedStaff", model: HelpdeskStaff, select: "name staffId email mobile department active" })
       .sort({ createdAt: -1 })
       .lean();
     res.json(requests || []);
   } catch (error) {
+    console.error("Fetch Helpdesk Requests:", error);
     res.status(500).json({ message: "Failed to load campus requests." });
   }
 });
 
 router.get("/service-staff", async (req, res) => {
   try {
-    const staff = await HelpdeskStaff.find({ active: true }).sort({ name: 1 }).lean();
-    res.json(staff);
+    const filter = req.query.all === "true" ? {} : { active: true };
+    const staff = await HelpdeskStaff.find(filter).sort({ active: -1, name: 1 }).lean();
+    res.json(staff.map(sanitizeStaff));
   } catch (error) {
     console.error("Helpdesk Staff Fetch:", error);
     res.status(500).json({ message: "Failed to load helpdesk staff." });
@@ -632,100 +653,287 @@ router.get("/service-staff", async (req, res) => {
 router.post("/service-staff", async (req, res) => {
   try {
     const name = clean(req.body.name);
+    const staffId = clean(req.body.staffId).toUpperCase();
     const email = clean(req.body.email).toLowerCase();
+    const password = String(req.body.password ?? "");
     const mobile = clean(req.body.mobile);
     const department = clean(req.body.department);
 
     if (name.length < 2 || name.length > 100) return res.status(400).json({ message: "Staff name must be between 2 and 100 characters." });
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ message: "Please provide a valid staff email address." });
+    const staffIdError = validateStaffId(staffId);
+    if (staffIdError) return res.status(400).json({ message: staffIdError });
+    if (!emailRegex.test(email)) return res.status(400).json({ message: "Please provide a valid staff email address." });
+    const passError = validatePassword(password);
+    if (passError) return res.status(400).json({ message: passError });
     if (mobile && !/^[0-9+()\-\s]{7,20}$/.test(mobile)) return res.status(400).json({ message: "Please provide a valid mobile number." });
     if (department.length < 2 || department.length > 100) return res.status(400).json({ message: "Department / type must be between 2 and 100 characters." });
 
-    const existing = await HelpdeskStaff.findOne({ email });
-    if (existing) return res.status(409).json({ message: "A helpdesk staff member with this email already exists." });
+    const [emailExisting, idExisting] = await Promise.all([
+      HelpdeskStaff.findOne({ email }),
+      HelpdeskStaff.findOne({ staffId }),
+    ]);
 
-    const staff = await HelpdeskStaff.create({ name, email, mobile, department, active: true });
-    res.status(201).json({ message: "Helpdesk staff added successfully.", staff });
+    if (emailExisting) {
+      if (!emailExisting.active) {
+        if (idExisting && String(idExisting._id) !== String(emailExisting._id)) {
+          return res.status(409).json({ message: "The Staff ID is already in use." });
+        }
+        emailExisting.name = name;
+        emailExisting.staffId = staffId;
+        emailExisting.mobile = mobile;
+        emailExisting.department = department;
+        emailExisting.password = await bcrypt.hash(password, 10);
+        emailExisting.active = true;
+        await emailExisting.save();
+        return res.status(200).json({ message: "Inactive helpdesk staff reactivated and login credentials updated.", staff: sanitizeStaff(emailExisting) });
+      }
+      return res.status(409).json({ message: "A helpdesk staff member with this email already exists." });
+    }
+
+    if (idExisting) return res.status(409).json({ message: "This Staff ID is already in use." });
+
+    const staff = await HelpdeskStaff.create({
+      name,
+      staffId,
+      email,
+      password: await bcrypt.hash(password, 10),
+      mobile,
+      department,
+      active: true,
+    });
+    res.status(201).json({ message: "Helpdesk staff added successfully.", staff: sanitizeStaff(staff) });
   } catch (error) {
     console.error("Create Helpdesk Staff:", error);
+    if (error?.code === 11000) return res.status(409).json({ message: "Staff ID or email is already in use." });
     res.status(500).json({ message: "Failed to add helpdesk staff." });
   }
 });
 
+router.put("/service-staff/:id", async (req, res) => {
+  try {
+    if (!isValidId(req.params.id)) return res.status(400).json({ message: "Invalid staff ID." });
+    const staff = await HelpdeskStaff.findById(req.params.id).select("+password");
+    if (!staff) return res.status(404).json({ message: "Helpdesk staff member not found." });
+
+    const name = clean(req.body.name);
+    const staffId = clean(req.body.staffId).toUpperCase();
+    const email = clean(req.body.email).toLowerCase();
+    const password = String(req.body.password ?? "");
+    const mobile = clean(req.body.mobile);
+    const department = clean(req.body.department);
+
+    if (name.length < 2 || name.length > 100) return res.status(400).json({ message: "Staff name must be between 2 and 100 characters." });
+    const staffIdError = validateStaffId(staffId);
+    if (staffIdError) return res.status(400).json({ message: staffIdError });
+    if (!emailRegex.test(email)) return res.status(400).json({ message: "Please provide a valid staff email address." });
+    if (password) {
+      const passError = validatePassword(password);
+      if (passError) return res.status(400).json({ message: passError });
+    }
+    if (mobile && !/^[0-9+()\-\s]{7,20}$/.test(mobile)) return res.status(400).json({ message: "Please provide a valid mobile number." });
+    if (department.length < 2 || department.length > 100) return res.status(400).json({ message: "Department / type must be between 2 and 100 characters." });
+
+    const [emailDuplicate, idDuplicate] = await Promise.all([
+      HelpdeskStaff.findOne({ email, _id: { $ne: staff._id } }),
+      HelpdeskStaff.findOne({ staffId, _id: { $ne: staff._id } }),
+    ]);
+    if (emailDuplicate) return res.status(409).json({ message: "Another helpdesk staff member already uses this email." });
+    if (idDuplicate) return res.status(409).json({ message: "Another helpdesk staff member already uses this Staff ID." });
+
+    staff.name = name;
+    staff.staffId = staffId;
+    staff.email = email;
+    staff.mobile = mobile;
+    staff.department = department;
+    if (password) staff.password = await bcrypt.hash(password, 10);
+    await staff.save();
+
+    res.json({ message: "Helpdesk staff updated successfully.", staff: sanitizeStaff(staff) });
+  } catch (error) {
+    console.error("Update Helpdesk Staff:", error);
+    if (error?.code === 11000) return res.status(409).json({ message: "Staff ID or email is already in use." });
+    res.status(500).json({ message: "Failed to update helpdesk staff." });
+  }
+});
+
+router.patch("/service-staff/:id/status", async (req, res) => {
+  try {
+    if (!isValidId(req.params.id)) return res.status(400).json({ message: "Invalid staff ID." });
+    const staff = await HelpdeskStaff.findById(req.params.id);
+    if (!staff) return res.status(404).json({ message: "Helpdesk staff member not found." });
+    const active = Boolean(req.body.active);
+    if (!active) {
+      const activeAssignments = await ServiceRequest.countDocuments({
+        assignedStaff: staff._id,
+        status: { $in: ["Assigned", "In Progress", "Awaiting Verification"] },
+      });
+      if (activeAssignments > 0) return res.status(409).json({ message: "This staff member has active helpdesk assignments. Reassign those tickets before deactivation." });
+    }
+    staff.active = active;
+    await staff.save();
+    res.json({ message: active ? "Staff member activated." : "Staff member deactivated.", staff });
+  } catch (error) {
+    console.error("Staff Status:", error);
+    res.status(500).json({ message: "Failed to update staff status." });
+  }
+});
+
+router.delete("/service-staff/:id", async (req, res) => {
+  try {
+    if (!isValidId(req.params.id)) return res.status(400).json({ message: "Invalid staff ID." });
+    const staff = await HelpdeskStaff.findById(req.params.id);
+    if (!staff) return res.status(404).json({ message: "Helpdesk staff member not found." });
+    const activeAssignments = await ServiceRequest.countDocuments({ assignedStaff: staff._id, status: { $in: ["Assigned", "In Progress", "Awaiting Verification"] } });
+    if (activeAssignments > 0) return res.status(409).json({ message: "This staff member has active assignments. Reassign the tickets first." });
+    staff.active = false;
+    await staff.save();
+    res.json({ message: "Staff member deactivated successfully." });
+  } catch (error) {
+    console.error("Deactivate Staff:", error);
+    res.status(500).json({ message: "Failed to deactivate staff member." });
+  }
+});
+
+const getHelpdeskRequestForAdmin = async (id) => ServiceRequest.findById(id)
+  .populate("student", "name id_no course semester email")
+  .populate("assignedStaff", "name staffId email mobile department active");
+
 router.put("/service-requests/:id/assign", async (req, res) => {
   try {
-    if (!isValidId(req.params.id) || !isValidId(req.body.staffId)) {
-      return res.status(400).json({ message: "Invalid request or staff ID." });
-    }
-
+    if (!isValidId(req.params.id) || !isValidId(req.body.staffId)) return res.status(400).json({ message: "Invalid request or staff ID." });
     const [request, staff] = await Promise.all([
-      ServiceRequest.findById(req.params.id).populate("student", "name id_no course semester email"),
+      getHelpdeskRequestForAdmin(req.params.id),
       HelpdeskStaff.findOne({ _id: req.body.staffId, active: true }).lean(),
     ]);
-
     if (!request) return res.status(404).json({ message: "Helpdesk request not found." });
     if (!staff) return res.status(404).json({ message: "Selected helpdesk staff member was not found or is inactive." });
+    if (request.assignedStaff) return res.status(409).json({ message: "This request is already assigned. Use Reassign Staff to change the assigned person." });
 
+    const previousStatus = request.status;
     request.assignedStaff = staff._id;
-    request.status = request.status === "Rejected" || request.status === "Fixed" ? "Assigned" : request.status;
+    request.assignedAt = new Date();
+    request.acceptedAt = null;
+    request.verificationSubmittedAt = null;
+    request.fixedAt = null;
+    request.status = "Assigned";
+    pushHelpdeskHistory({ request, action: "Request assigned", fromStatus: previousStatus, toStatus: "Assigned", actorType: "admin", actorName: req.user.id, staffId: staff._id, note: `Assigned to ${staff.name}.` });
     await request.save();
 
+    const freshRequest = await getHelpdeskRequestForAdmin(request._id);
     let emailResult = { sent: false, skipped: false, failed: false };
-    try {
-      emailResult = await sendHelpdeskAssignmentEmail({ staff, request });
-    } catch (emailError) {
-      console.error("Helpdesk assignment email error:", emailError);
-      emailResult = { sent: false, skipped: false, failed: true, error: emailError.message };
-    }
+    try { emailResult = await sendHelpdeskAssignmentEmail({ staff, request: freshRequest }); }
+    catch (emailError) { console.error("Helpdesk assignment email error:", emailError); emailResult = { sent: false, skipped: false, failed: true, error: emailError.message }; }
 
-    await Notification.create({
-      recipient: req.user.id,
-      recipientRole: "admin",
-      type: "HELPDESK",
-      title: "Helpdesk Request Assigned",
-      message: `${request.category} request ${request._id} assigned to ${staff.name}.`,
-      link: "/admin/dashboard?open=helpdesk",
-    });
+    const admins = await User.find({ role: "admin", status: true }).select("_id").lean();
+    if (admins.length) await Notification.insertMany(admins.map((admin) => ({ recipient: admin._id, recipientRole: "admin", type: "HELPDESK", title: "Helpdesk Request Assigned", message: `${request.category} request ${request._id} assigned to ${staff.name}.`, link: `/admin/dashboard?open=helpdesk&ticketId=${request._id}` })));
 
-    res.json({
-      message: "Helpdesk request assigned successfully.",
-      emailSent: Boolean(emailResult.sent),
-      emailSkipped: Boolean(emailResult.skipped),
-      staff,
-      request,
-    });
+    res.json({ message: "Helpdesk request assigned successfully.", emailSent: Boolean(emailResult.sent), emailSkipped: Boolean(emailResult.skipped), emailFailed: Boolean(emailResult.failed), emailError: emailResult.error || "", staff, request: freshRequest });
   } catch (error) {
     console.error("Assign Helpdesk Request:", error);
     res.status(500).json({ message: error.message || "Failed to assign helpdesk request." });
   }
 });
 
+router.put("/service-requests/:id/reassign", async (req, res) => {
+  try {
+    if (!isValidId(req.params.id) || !isValidId(req.body.staffId)) return res.status(400).json({ message: "Invalid request or staff ID." });
+    const reason = clean(req.body.reason);
+    if (reason.length < 5 || reason.length > 500) return res.status(400).json({ message: "Reassignment reason must be between 5 and 500 characters." });
+
+    const [request, newStaff] = await Promise.all([
+      getHelpdeskRequestForAdmin(req.params.id),
+      HelpdeskStaff.findOne({ _id: req.body.staffId, active: true }).lean(),
+    ]);
+    if (!request) return res.status(404).json({ message: "Helpdesk request not found." });
+    if (!request.assignedStaff) return res.status(400).json({ message: "This request has not been assigned yet. Use Assign Staff first." });
+    if (!newStaff) return res.status(404).json({ message: "Selected helpdesk staff member was not found or is inactive." });
+    if (String(request.assignedStaff._id) === String(newStaff._id)) return res.status(400).json({ message: "Please choose a different staff member." });
+
+    const previousStaff = request.assignedStaff;
+    const previousStatus = request.status;
+    request.assignedStaff = newStaff._id;
+    request.assignedAt = new Date();
+    request.acceptedAt = null;
+    request.verificationSubmittedAt = null;
+    request.status = "Assigned";
+    pushHelpdeskHistory({ request, action: "Request reassigned", fromStatus: previousStatus, toStatus: "Assigned", actorType: "admin", actorName: req.user.id, staffId: newStaff._id, note: `${previousStaff.name} → ${newStaff.name}. Reason: ${reason}` });
+    await request.save();
+
+    const freshRequest = await getHelpdeskRequestForAdmin(request._id);
+    let emailResult = { sent: false, skipped: false, failed: false };
+    try { emailResult = await sendHelpdeskAssignmentEmail({ staff: newStaff, request: freshRequest, reassigned: true, reason }); }
+    catch (emailError) { console.error("Helpdesk reassign email error:", emailError); emailResult = { sent: false, skipped: false, failed: true, error: emailError.message }; }
+
+    const admins = await User.find({ role: "admin", status: true }).select("_id").lean();
+    if (admins.length) await Notification.insertMany(admins.map((admin) => ({ recipient: admin._id, recipientRole: "admin", type: "HELPDESK", title: "Helpdesk Request Reassigned", message: `${request._id} was reassigned from ${previousStaff.name} to ${newStaff.name}.`, link: `/admin/dashboard?open=helpdesk&ticketId=${request._id}` })));
+
+    res.json({ message: "Helpdesk request reassigned successfully.", emailSent: Boolean(emailResult.sent), emailSkipped: Boolean(emailResult.skipped), emailFailed: Boolean(emailResult.failed), emailError: emailResult.error || "", previousStaff, staff: newStaff, request: freshRequest });
+  } catch (error) {
+    console.error("Reassign Helpdesk Request:", error);
+    res.status(500).json({ message: error.message || "Failed to reassign helpdesk request." });
+  }
+});
+
+router.put("/service-requests/:id/verify", async (req, res) => {
+  try {
+    if (!isValidId(req.params.id)) return res.status(400).json({ message: "Invalid request ID." });
+    const action = clean(req.body.action).toLowerCase();
+    const request = await getHelpdeskRequestForAdmin(req.params.id);
+    if (!request) return res.status(404).json({ message: "Helpdesk request not found." });
+
+    if (action === "approve") {
+      if (request.status !== "Awaiting Verification") return res.status(409).json({ message: "Only requests awaiting verification can be approved." });
+      const previousStatus = request.status;
+      request.status = "Fixed";
+      request.fixedAt = new Date();
+      pushHelpdeskHistory({ request, action: "Admin approved completion", fromStatus: previousStatus, toStatus: "Fixed", actorType: "admin", actorName: req.user.id, staffId: request.assignedStaff?._id || null, note: "Admin verified the submitted resolution and proof." });
+      await request.save();
+      await Notification.create({ recipient: request.student._id, recipientRole: "student", type: "HELPDESK", title: "Helpdesk Request Resolved", message: `Your ${request.category} request ${request._id} has been resolved and closed.`, link: `/student/dashboard?open=helpdesk&ticketId=${request._id}` });
+      return res.json({ message: "Request approved and closed.", request: await getHelpdeskRequestForAdmin(request._id) });
+    }
+
+    if (action === "return") {
+      if (request.status !== "Awaiting Verification") return res.status(409).json({ message: "Only requests awaiting verification can be returned." });
+      const note = clean(req.body.note);
+      if (note.length < 5 || note.length > 1000) return res.status(400).json({ message: "Return note must be between 5 and 1000 characters." });
+      const previousStatus = request.status;
+      request.status = "In Progress";
+      request.adminNote = note;
+      request.verificationSubmittedAt = null;
+      pushHelpdeskHistory({ request, action: "Admin returned for more work", fromStatus: previousStatus, toStatus: "In Progress", actorType: "admin", actorName: req.user.id, staffId: request.assignedStaff?._id || null, note });
+      await request.save();
+      if (request.assignedStaff) await Notification.create({ recipient: request.student._id, recipientRole: "student", type: "HELPDESK", title: "More Helpdesk Work Required", message: `Your ${request.category} request needs additional work before it can be closed.`, link: `/student/dashboard?open=helpdesk&ticketId=${request._id}` });
+      return res.json({ message: "Request returned to staff for more work.", request: await getHelpdeskRequestForAdmin(request._id) });
+    }
+
+    return res.status(400).json({ message: "Invalid verification action." });
+  } catch (error) {
+    console.error("Verify Helpdesk Request:", error);
+    res.status(500).json({ message: error.message || "Failed to verify helpdesk request." });
+  }
+});
+
+// Backward-compatible status endpoint retained for existing admin UI/clients.
 router.put("/service-requests/:id/status", async (req, res) => {
   try {
     if (!isValidId(req.params.id)) return res.status(400).json({ message: "Invalid request ID." });
-    const allowed = ["Assigned", "In Progress", "Awaiting Verification", "Fixed", "Rejected"];
+    const allowed = ["Pending Review", "Assigned", "In Progress", "Awaiting Verification", "Fixed", "Rejected"];
     const status = clean(req.body.status);
     if (!allowed.includes(status)) return res.status(400).json({ message: "Invalid status value." });
-
-    const payload = { status };
-    if (req.body.adminNote !== undefined) {
-      const adminNote = clean(req.body.adminNote);
-      if (adminNote.length > 1000) return res.status(400).json({ message: "Admin note cannot exceed 1000 characters." });
-      payload.adminNote = adminNote;
-    }
-    if (status === "Rejected") {
-      const reason = clean(req.body.rejectionReason);
-      if (reason.length < 5 || reason.length > 500) return res.status(400).json({ message: "Rejection reason must be 5–500 characters." });
-      payload.rejectionReason = reason;
-    }
-
-    const updated = await ServiceRequest.findByIdAndUpdate(req.params.id, payload, { new: true, runValidators: true }).populate("student", "name role");
-    if (!updated) return res.status(404).json({ message: "Helpdesk request not found." });
-    if (updated.student?._id) {
-      await Notification.create({ recipient: updated.student._id, recipientRole: "student", type: "HELPDESK", title: "Helpdesk Updated", message: `Your ${updated.category || "campus"} request is now ${status}.`, link: "/student/dashboard?open=helpdesk" });
-    }
-    res.json({ message: `Request status updated to ${status}.`, updated });
-  } catch (error) { res.status(500).json({ message: "Failed to update request status." }); }
+    const request = await ServiceRequest.findById(req.params.id).populate("student", "name id_no");
+    if (!request) return res.status(404).json({ message: "Helpdesk request not found." });
+    const previousStatus = request.status;
+    request.status = status;
+    if (req.body.adminNote !== undefined) request.adminNote = clean(req.body.adminNote);
+    if (status === "Rejected") request.rejectionReason = clean(req.body.rejectionReason);
+    pushHelpdeskHistory({ request, action: "Admin changed status", fromStatus: previousStatus, toStatus: status, actorType: "admin", actorName: req.user.id, staffId: request.assignedStaff || null, note: request.adminNote || request.rejectionReason || "" });
+    await request.save();
+    if (request.student) await Notification.create({ recipient: request.student._id, recipientRole: "student", type: "HELPDESK", title: "Helpdesk Updated", message: `Your ${request.category || "campus"} request is now ${status}.`, link: `/student/dashboard?open=helpdesk&ticketId=${request._id}` });
+    res.json({ message: "Helpdesk status updated successfully.", request });
+  } catch (error) {
+    console.error("Update Helpdesk Status:", error);
+    res.status(500).json({ message: error.message || "Failed to update helpdesk status." });
+  }
 });
 
 // ======================= ANNOUNCEMENTS =======================
