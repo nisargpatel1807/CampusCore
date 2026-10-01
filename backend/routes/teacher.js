@@ -585,9 +585,60 @@ router.get("/calendar-events", async (req,res)=>{
       CalendarEvent.find({ $or:[{targetRoles:{ $in:["teacher"] }},{targetRoles:{ $exists:false }}] }).sort({date:1}).lean(),
     ]);
     const events=[];
-    for(const a of assignments){ events.push({ _id:`assignment-open-${a._id}`, date:a.publishDate||a.createdAt, title:a.title, category:"Assignment Open", subject:a.subject }); events.push({ _id:`assignment-close-${a._id}`, date:a.dueDate, title:a.title, category:"Assignment Deadline", subject:a.subject }); }
-    for(const q of quizzes){ const open=q.openDate||q.createdAt, close=q.closeDate||q.dueDate; events.push({ _id:`quiz-open-${q._id}`, date:open, title:q.title, category:"Quiz Open", subject:q.subject }); if(close) events.push({ _id:`quiz-close-${q._id}`, date:close, title:q.title, category:"Quiz Close", subject:q.subject }); }
-    for(const e of adminEvents) events.push(e);
+    for(const a of assignments){
+      events.push({
+        _id:`assignment-open-${a._id}`,
+        date:a.publishDate||a.createdAt,
+        title:a.title,
+        category:"Assignment Open",
+        subject:a.subject,
+        color:"#38BDF8",
+      });
+      events.push({
+        _id:`assignment-close-${a._id}`,
+        date:a.dueDate,
+        title:a.title,
+        category:"Assignment Deadline",
+        subject:a.subject,
+        color:"#0EA5E9",
+      });
+    }
+    for(const q of quizzes){
+      const open=q.openDate||q.createdAt, close=q.closeDate||q.dueDate;
+      events.push({
+        _id:`quiz-open-${q._id}`,
+        date:open,
+        title:q.title,
+        category:"Quiz Open",
+        subject:q.subject,
+        color:"#DB2777",
+      });
+      if(close) events.push({
+        _id:`quiz-close-${q._id}`,
+        date:close,
+        title:q.title,
+        category:"Quiz Close",
+        subject:q.subject,
+        color:"#EC4899",
+      });
+    }
+    const calendarColors = {
+      "Holiday":"#16A34A",
+      "Internal Exam":"#DC2626",
+      "External Exam":"#EA580C",
+      "Event":"#2563EB",
+      "Seminar":"#7C3AED",
+      "Sports Event":"#9333EA",
+      "Hackathon":"#0891B2",
+      "Workshop":"#CA8A04",
+      "Assignment Deadline":"#0EA5E9",
+      "Quiz":"#DB2777",
+      "General Event":"#2563EB",
+      "Other":"#64748B",
+    };
+    for(const e of adminEvents) {
+      events.push({ ...e, color: calendarColors[e.category] || "#64748B" });
+    }
     events.sort((a,b)=>new Date(a.date)-new Date(b.date));
     res.json(events);
   }catch(err){ console.error("Teacher Automatic Calendar Error:",err); res.status(500).json({message:"Failed to load automatic calendar."}); }

@@ -964,10 +964,35 @@ router.post("/announcements", announcementUpload.single("attachment"), async (re
   }catch(err){ if(req.file?.path) removeUploadedFile(req.file); console.error("Announcement Error:",err); res.status(500).json({message:err.message||"Failed to send announcement."}); }
 });
 
+const CALENDAR_EVENT_COLORS = {
+  "Holiday": "#16A34A",
+  "Internal Exam": "#DC2626",
+  "External Exam": "#EA580C",
+  "Event": "#2563EB",
+  "Seminar": "#7C3AED",
+  "Sports Event": "#9333EA",
+  "Hackathon": "#0891B2",
+  "Workshop": "#CA8A04",
+  "Assignment Deadline": "#0EA5E9",
+  "Quiz": "#DB2777",
+  "Other": "#64748B",
+  "General Event": "#2563EB",
+};
+
+const getCalendarEventColor = (category) =>
+  CALENDAR_EVENT_COLORS[category] || CALENDAR_EVENT_COLORS.Other;
+
 // ======================= CALENDAR =======================
 router.get("/calendar-events", async (req, res) => {
-  try { res.json(await CalendarEvent.find().sort({ date: 1 }).lean()); }
-  catch (error) { res.status(500).json({ message: "Failed to fetch calendar events." }); }
+  try {
+    const events = await CalendarEvent.find().sort({ date: 1 }).lean();
+    res.json(events.map((event) => ({
+      ...event,
+      color: getCalendarEventColor(event.category),
+    })));
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch calendar events." });
+  }
 });
 
 router.post("/calendar-event", async (req, res) => {
@@ -976,7 +1001,6 @@ router.post("/calendar-event", async (req, res) => {
     const date = clean(req.body.date);
     const category = clean(req.body.category);
     const customCategory = clean(req.body.customCategory);
-    const color = clean(req.body.color) || "#3B82F6";
     const targetCourse = clean(req.body.targetCourse) || "ALL";
     const targetSemester = Number(req.body.targetSemester || 0);
 
@@ -1011,10 +1035,6 @@ router.post("/calendar-event", async (req, res) => {
       return res.status(400).json({ message: "Custom event type must be between 2 and 80 characters." });
     }
 
-    if (!/^#[0-9A-Fa-f]{6}$/.test(color)) {
-      return res.status(400).json({ message: "Please provide a valid 6-digit hex color." });
-    }
-
     if (!Number.isInteger(targetSemester) || targetSemester < 0 || targetSemester > 20) {
       return res.status(400).json({ message: "Invalid target semester." });
     }
@@ -1033,7 +1053,7 @@ router.post("/calendar-event", async (req, res) => {
       date: parsed,
       category,
       customCategory: category === "Other" ? customCategory : "",
-      color,
+      color: getCalendarEventColor(category),
       targetCourse,
       targetSemester,
       targetRoles: ["admin", "teacher", "student"],

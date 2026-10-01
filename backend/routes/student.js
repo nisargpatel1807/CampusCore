@@ -495,7 +495,7 @@ router.get("/calendar-events", authMiddleware, async (req, res) => {
         title:a.title,
         category:"Assignment Open",
         subject:a.subject,
-        color:"#3B82F6",
+        color:"#38BDF8",
       });
       events.push({
         _id:`assignment-close-${a._id}`,
@@ -503,7 +503,7 @@ router.get("/calendar-events", authMiddleware, async (req, res) => {
         title:a.title,
         category:"Assignment Deadline",
         subject:a.subject,
-        color:"#2563EB",
+        color:"#0EA5E9",
       });
     }
     for(const q of quizzes){
@@ -514,7 +514,7 @@ router.get("/calendar-events", authMiddleware, async (req, res) => {
         title:q.title,
         category:"Quiz Open",
         subject:q.subject,
-        color:"#F59E0B",
+        color:"#DB2777",
       });
       if(close) events.push({
         _id:`quiz-close-${q._id}`,
@@ -522,21 +522,23 @@ router.get("/calendar-events", authMiddleware, async (req, res) => {
         title:q.title,
         category:"Quiz Close",
         subject:q.subject,
-        color:"#EF4444",
+        color:"#EC4899",
       });
     }
     for(const e of adminEvents){
       events.push({ ...e, color: e.color || ({
-        "Holiday":"#DC2626",
-        "Internal Exam":"#16A34A",
-        "External Exam":"#7C3AED",
+        "Holiday":"#16A34A",
+        "Internal Exam":"#DC2626",
+        "External Exam":"#EA580C",
         "Event":"#2563EB",
-        "Seminar":"#0891B2",
-        "Sports Event":"#EA580C",
-        "Hackathon":"#9333EA",
-        "Workshop":"#0F766E",
-        "General Event":"#64748B",
-        "Other":"#475569",
+        "Seminar":"#7C3AED",
+        "Sports Event":"#9333EA",
+        "Hackathon":"#0891B2",
+        "Workshop":"#CA8A04",
+        "Assignment Deadline":"#0EA5E9",
+        "Quiz":"#DB2777",
+        "General Event":"#2563EB",
+        "Other":"#64748B",
       }[e.category] || "#3B82F6") });
     }
     events.sort((a,b)=>new Date(a.date)-new Date(b.date));
