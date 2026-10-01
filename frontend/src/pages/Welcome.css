@@ -1,80 +1,228 @@
-/* Background */
-.welcome-bg {
-  height: 100vh;
+.welcome-page {
+  min-height: 100vh;
   width: 100%;
-  background-size: cover;
-  background-position: center;
-  display: flex;
-  justify-content: center;
-  align-items: center;
   position: relative;
+  overflow: hidden;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  background: #06152e;
 }
 
-/* Dark overlay */
-.overlay {
+.welcome-bg {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  transform: scale(1.01);
 }
 
-/* Card */
-.welcome-card {
+.welcome-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(3, 17, 48, 0.9) 0%,
+    rgba(3, 22, 55, 0.64) 42%,
+    rgba(3, 17, 45, 0.18) 78%,
+    rgba(3, 17, 45, 0.25) 100%
+  );
+}
+
+.welcome-content {
   position: relative;
-  background: rgba(255, 255, 255, 0.95);
-  padding: 40px;
-  width: 360px;
-  border-radius: 20px;
-  text-align: center;
-  z-index: 10;
-  box-shadow: 0 15px 40px rgba(0,0,0,0.3);
-  backdrop-filter: blur(10px);
-}
-
-/* Title */
-.welcome-card h1 {
-  font-size: 28px;
-  color: #1e3c72;
-}
-
-/* Subtitle */
-.subtitle {
-  color: gray;
-  margin-bottom: 20px;
-}
-
-/* Buttons */
-.btn-group {
+  z-index: 2;
+  min-height: 100vh;
+  width: min(760px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 28px 0;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.welcome-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.welcome-logo {
+  display: block;
+  width: min(410px, 90vw);
+  height: auto;
+  max-height: 135px;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.2));
+}
+
+.welcome-card {
+  width: 100%;
+  max-width: 560px;
+  padding: 36px;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 28px;
+  box-shadow:
+    0 35px 90px rgba(0, 0, 0, 0.28),
+    0 10px 30px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(18px);
+  text-align: center;
+  animation: welcomeEnter 0.5s ease both;
+}
+
+@keyframes welcomeEnter {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.welcome-eyebrow {
+  color: #1f67e8;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  margin-bottom: 9px;
+}
+
+.welcome-card h1 {
+  margin: 0;
+  color: #172f54;
+  font-size: 32px;
+  font-weight: 500;
+  letter-spacing: -0.8px;
+}
+
+.welcome-card > p {
+  margin: 8px 0 25px;
+  color: #71819a;
+  font-size: 14px;
+}
+
+.role-list {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.role-item {
+  width: 100%;
+  min-height: 78px;
+  display: flex;
+  align-items: center;
+  text-align: left;
   gap: 15px;
-  margin-top: 20px;
-}
-
-.btn {
-  padding: 12px;
-  border-radius: 10px;
-  border: none;
-  color: white;
-  font-size: 16px;
+  padding: 10px 15px;
+  border: 1px solid #e3eaf3;
+  border-radius: 18px;
+  background: #fff;
   cursor: pointer;
-  transition: 0.3s;
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease,
+    border-color 0.22s ease;
 }
 
-/* Role colors */
-.admin {
-  background: #ff6b6b;
+.role-item:hover {
+  transform: translateY(-3px);
+  border-color: var(--role-color);
+  box-shadow: 0 12px 28px rgba(18, 40, 72, 0.1);
 }
 
-.teacher {
-  background: #4ecdc4;
+.role-icon {
+  width: 55px;
+  height: 55px;
+  flex: 0 0 55px;
+  display: grid;
+  place-items: center;
+  border-radius: 15px;
+  font-size: 26px;
 }
 
-.student {
-  background: #5f27cd;
+.role-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-/* Hover effects */
-.btn:hover {
-  transform: scale(1.05);
-  opacity: 0.9;
+.role-info strong {
+  color: #1a3154;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.role-info span {
+  color: #73839b;
+  font-size: 13px;
+}
+
+.role-arrow {
+  margin-left: auto;
+  color: var(--role-color);
+  font-size: 28px;
+  transition: transform 0.2s ease;
+}
+
+.role-item:hover .role-arrow {
+  transform: translateX(5px);
+}
+
+.welcome-footer {
+  margin-top: 21px;
+  color: #9aa8ba;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.welcome-footer span {
+  color: #16a34a;
+  margin-right: 6px;
+  font-size: 9px;
+}
+
+@media (max-width: 600px) {
+  .welcome-content {
+    width: calc(100% - 22px);
+    padding: 20px 0;
+  }
+
+  .welcome-logo {
+    width: min(330px, 90vw);
+    max-height: 105px;
+  }
+
+  .welcome-card {
+    padding: 25px 18px;
+    border-radius: 22px;
+  }
+
+  .welcome-card h1 {
+    font-size: 27px;
+  }
+
+  .role-item {
+    min-height: 70px;
+  }
+
+  .role-icon {
+    width: 48px;
+    height: 48px;
+    flex-basis: 48px;
+    font-size: 22px;
+  }
+
+  .role-info strong {
+    font-size: 15px;
+  }
+
+  .role-info span {
+    font-size: 12px;
+  }
 }

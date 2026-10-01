@@ -1,81 +1,414 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
-import "../index.css";
+import "./Login.css";
+
+const API = "http://localhost:5000/api";
+
+const ROLE_CONFIG = {
+  student: {
+    name: "Student",
+    portal: "Student Portal",
+    color: "#1677ff",
+    softColor: "#eaf3ff",
+    icon: "🎓",
+    background: "/01_CampusCore_Background_Blue.png",
+    description: "Access your classes, results and campus services.",
+    idLabel: "ID / Enrollment Number",
+    idPlaceholder: "Enter your enrollment number",
+  },
+  teacher: {
+    name: "Teacher",
+    portal: "Teacher Portal",
+    color: "#7c3aed",
+    softColor: "#f3edff",
+    icon: "👩‍🏫",
+    background: "/02_CampusCore_Background_Purple.png",
+    description: "Manage your classes, timetable and academic activities.",
+    idLabel: "ID / Employee ID",
+    idPlaceholder: "Enter your employee ID",
+  },
+  admin: {
+    name: "Admin",
+    portal: "Admin Portal",
+    color: "#f97316",
+    softColor: "#fff2e8",
+    icon: "👨‍💼",
+    background: "/03_CampusCore_Background_Orange.png",
+    description: "Manage campus operations and system settings.",
+    idLabel: "ID / Admin ID",
+    idPlaceholder: "Enter your admin ID",
+  },
+};
 
 export default function Login() {
   const { role } = useParams();
   const navigate = useNavigate();
+  const config = ROLE_CONFIG[role] || ROLE_CONFIG.student;
+
   const [id_no, setId] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+
   const [showForgot, setShowForgot] = useState(false);
-  const [forgotForm, setForgotForm] = useState({ id_no: "", email: "", newPassword: "", confirmPassword: "" });
+  const [forgotForm, setForgotForm] = useState({
+    id_no: "",
+    email: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
   const [forgotLoading, setForgotLoading] = useState(false);
 
   useEffect(() => {
-    const rememberedId = localStorage.getItem(`rememberedLoginId_${role}`) || "";
+    const rememberedId =
+      localStorage.getItem(`rememberedLoginId_${role}`) || "";
     setId(rememberedId);
   }, [role]);
 
-  const colors = { admin: "orange", teacher: "purple", student: "blue" };
-  const color = colors[role] || "blue";
-  const roleName = role ? role.charAt(0).toUpperCase() + role.slice(1) : "User";
-  const theme = role === "admin"
-    ? { header: "bg-orange-700", button: "bg-orange-700 hover:bg-orange-800" }
-    : role === "teacher"
-      ? { header: "bg-purple-700", button: "bg-purple-700 hover:bg-purple-800" }
-      : { header: "bg-blue-700", button: "bg-blue-700 hover:bg-blue-800" };
-
   const handleLogin = async () => {
     const cleanId = id_no.trim();
-    if (!cleanId || !password) { alert("Please enter your ID and password."); return; }
+
+    if (!cleanId || !password) {
+      alert("Please enter your ID and password.");
+      return;
+    }
+
     try {
       setLoading(true);
-      const res = await axios.post("http://localhost:5000/api/auth/login", { id_no: cleanId, password, role });
+
+      const res = await axios.post(`${API}/auth/login`, {
+        id_no: cleanId,
+        password,
+        role,
+      });
+
       localStorage.setItem("token", res.data.token);
       localStorage.setItem("user", JSON.stringify(res.data.user));
-      if (rememberMe) localStorage.setItem(`rememberedLoginId_${role}`, cleanId);
-      else localStorage.removeItem(`rememberedLoginId_${role}`);
-      navigate(role === "admin" ? "/admin/dashboard" : role === "teacher" ? "/teacher/dashboard" : "/student/dashboard");
-    } catch (err) { alert(err.response?.data?.message || "Login failed. Please check your credentials."); }
-    finally { setLoading(false); }
+
+      if (rememberMe) {
+        localStorage.setItem(`rememberedLoginId_${role}`, cleanId);
+      } else {
+        localStorage.removeItem(`rememberedLoginId_${role}`);
+      }
+
+      if (role === "admin") navigate("/admin/dashboard");
+      else if (role === "teacher") navigate("/teacher/dashboard");
+      else navigate("/student/dashboard");
+    } catch (err) {
+      alert(
+        err.response?.data?.message ||
+          "Login failed. Please check your credentials."
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleForgotPassword = async (e) => {
     e.preventDefault();
+
     const email = forgotForm.email.trim().toLowerCase();
     const newPassword = forgotForm.newPassword;
-    if (forgotForm.id_no.trim().length < 3) return alert("Please enter a valid ID.");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return alert("Please enter a valid email address.");
-    if (newPassword.length < 6 || newPassword.length > 100 || !newPassword.trim()) return alert("New password must be 6–100 characters.");
-    if (newPassword !== forgotForm.confirmPassword) return alert("New password and confirm password do not match.");
+
+    if (forgotForm.id_no.trim().length < 3) {
+      alert("Please enter a valid ID.");
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      alert("Please enter a valid email address.");
+      return;
+    }
+
+    if (
+      newPassword.length < 6 ||
+      newPassword.length > 100 ||
+      !newPassword.trim()
+    ) {
+      alert("New password must be 6–100 characters.");
+      return;
+    }
+
+    if (newPassword !== forgotForm.confirmPassword) {
+      alert("New password and confirm password do not match.");
+      return;
+    }
+
     try {
       setForgotLoading(true);
-      const res = await axios.post("http://localhost:5000/api/auth/forgot-password", { id_no: forgotForm.id_no.trim(), email, newPassword });
+
+      const res = await axios.post(`${API}/auth/forgot-password`, {
+        id_no: forgotForm.id_no.trim(),
+        email,
+        newPassword,
+      });
+
       alert(res.data.message || "Password reset successfully.");
-      setForgotForm({ id_no: "", email: "", newPassword: "", confirmPassword: "" });
+
+      setForgotForm({
+        id_no: "",
+        email: "",
+        newPassword: "",
+        confirmPassword: "",
+      });
+
       setShowForgot(false);
-    } catch (err) { alert(err.response?.data?.message || "Unable to reset password."); }
-    finally { setForgotLoading(false); }
+    } catch (err) {
+      alert(err.response?.data?.message || "Unable to reset password.");
+    } finally {
+      setForgotLoading(false);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden">
-        <div className={`${theme.header} text-white p-6 text-center`}>
-          <div className="text-4xl mb-2">🎓</div><h1 className="text-2xl font-bold">CampusCore</h1><p className="text-sm opacity-90">{roleName} Login</p>
-        </div>
-        <div className="p-6 space-y-4">
-          <div><label className="text-sm font-semibold text-gray-700">ID / Enrollment Number</label><input value={id_no} onChange={(e)=>setId(e.target.value)} className="w-full mt-1 border rounded-lg p-3" placeholder="Enter your ID" /></div>
-          <div><label className="text-sm font-semibold text-gray-700">Password</label><input type="password" value={password} onChange={(e)=>setPassword(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&handleLogin()} className="w-full mt-1 border rounded-lg p-3" placeholder="Enter your password" /></div>
-          <div className="flex items-center justify-between"><label className="flex items-center gap-2 text-sm text-gray-600"><input type="checkbox" checked={rememberMe} onChange={(e)=>setRememberMe(e.target.checked)} /> Remember Me</label><button type="button" onClick={()=>{setForgotForm((p)=>({...p,id_no}));setShowForgot(true);}} className="text-sm text-blue-600 hover:underline font-semibold">Forgot Password?</button></div>
-          <button onClick={handleLogin} disabled={loading} className={`${theme.button} w-full disabled:opacity-50 text-white py-3 rounded-lg font-bold transition`}>{loading?"Signing in...":"Login"}</button>
-        </div>
-      </div>
+    <div
+      className="login-page"
+      style={{
+        "--role-color": config.color,
+        "--role-soft": config.softColor,
+        "--role-background": `url("${config.background}")`,
+      }}
+    >
+      <div className="login-background" />
+      <div className="login-overlay" />
 
-      {showForgot && <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6"><div className="flex justify-between items-center mb-4"><div><h2 className="text-lg font-bold text-gray-800">🔐 Forgot Password</h2><p className="text-xs text-gray-500">Reset your {roleName.toLowerCase()} account password.</p></div><button onClick={()=>setShowForgot(false)} className="text-xl text-gray-400">✕</button></div><form onSubmit={handleForgotPassword} className="space-y-3"><input value={forgotForm.id_no} onChange={(e)=>setForgotForm({...forgotForm,id_no:e.target.value})} className="w-full border rounded-lg p-3" placeholder="ID / Enrollment Number" required /><input type="email" value={forgotForm.email} onChange={(e)=>setForgotForm({...forgotForm,email:e.target.value})} className="w-full border rounded-lg p-3" placeholder="Registered Email" required /><input type="password" value={forgotForm.newPassword} onChange={(e)=>setForgotForm({...forgotForm,newPassword:e.target.value})} className="w-full border rounded-lg p-3" placeholder="New Password" required minLength={6} /><input type="password" value={forgotForm.confirmPassword} onChange={(e)=>setForgotForm({...forgotForm,confirmPassword:e.target.value})} className="w-full border rounded-lg p-3" placeholder="Confirm New Password" required minLength={6} /><button disabled={forgotLoading} className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-3 rounded-lg font-bold">{forgotLoading?"Resetting...":"Reset Password"}</button></form></div></div>}
+      <main className="login-layout">
+        <section className="login-hero">
+          <button
+            type="button"
+            className="back-role-button"
+            onClick={() => navigate("/")}
+          >
+            <span>←</span>
+            Back to role selection
+          </button>
+
+          <div className="brand-block">
+            <img
+              src="/CampusCore_Login_Branding_Logo.png"
+              alt="CampusCore"
+              className="login-logo"
+            />
+          </div>
+
+          <div className="hero-content">
+            <div className="portal-badge">{config.portal}</div>
+
+            <h1>
+              Welcome <span>back.</span>
+            </h1>
+
+            <p>{config.description}</p>
+          </div>
+        </section>
+
+        <section className="login-card">
+          <div className="login-card-header">
+            <div
+              className="login-icon"
+              style={{
+                backgroundColor: config.softColor,
+                color: config.color,
+              }}
+            >
+              {config.icon}
+            </div>
+
+            <div>
+              <span
+                className="secure-label"
+                style={{ color: config.color }}
+              >
+                SECURE SIGN IN
+              </span>
+              <h2>{config.name} Login</h2>
+            </div>
+          </div>
+
+          <p className="login-description">
+            Use your CampusCore credentials to continue.
+          </p>
+
+          <div className="form-group">
+            <label>{config.idLabel}</label>
+
+            <div className="input-wrapper">
+              <span
+                className="input-icon"
+                style={{ color: config.color }}
+              >
+                ID
+              </span>
+
+              <input
+                value={id_no}
+                onChange={(e) => setId(e.target.value)}
+                placeholder={config.idPlaceholder}
+                autoComplete="username"
+              />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label>Password</label>
+
+            <div className="input-wrapper">
+              <span
+                className="input-icon password-symbol"
+                style={{ color: config.color }}
+              >
+                ••
+              </span>
+
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                placeholder="Enter your password"
+                autoComplete="current-password"
+              />
+
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword((prev) => !prev)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? "◉" : "◌"}
+              </button>
+            </div>
+          </div>
+
+          <div className="login-options">
+            <label className="remember-option">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+              />
+              <span className="custom-checkbox" />
+              <span>Remember Me</span>
+            </label>
+
+            <button
+              type="button"
+              className="forgot-button"
+              style={{ color: config.color }}
+              onClick={() => {
+                setForgotForm((prev) => ({ ...prev, id_no }));
+                setShowForgot(true);
+              }}
+            >
+              Forgot Password?
+            </button>
+          </div>
+
+          <button
+            type="button"
+            className="login-submit"
+            style={{ backgroundColor: config.color }}
+            onClick={handleLogin}
+            disabled={loading}
+          >
+            <span>{loading ? "Signing in..." : "Login"}</span>
+            {!loading && <span className="login-arrow">→</span>}
+          </button>
+
+          <div className="login-security-note">
+            <span style={{ color: config.color }}>✓</span>
+            Your login is protected by CampusCore authentication.
+          </div>
+        </section>
+      </main>
+
+      {showForgot && (
+        <div className="forgot-overlay">
+          <div className="forgot-modal">
+            <div className="forgot-header">
+              <div>
+                <span
+                  className="secure-label"
+                  style={{ color: config.color }}
+                >
+                  ACCOUNT RECOVERY
+                </span>
+                <h3>Forgot Password?</h3>
+                <p>
+                  Reset your {config.name.toLowerCase()} account password.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="close-modal"
+                onClick={() => setShowForgot(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleForgotPassword}>
+              <input
+                value={forgotForm.id_no}
+                onChange={(e) =>
+                  setForgotForm({ ...forgotForm, id_no: e.target.value })
+                }
+                placeholder={config.idLabel}
+                required
+              />
+
+              <input
+                type="email"
+                value={forgotForm.email}
+                onChange={(e) =>
+                  setForgotForm({ ...forgotForm, email: e.target.value })
+                }
+                placeholder="Registered Email"
+                required
+              />
+
+              <input
+                type="password"
+                value={forgotForm.newPassword}
+                onChange={(e) =>
+                  setForgotForm({
+                    ...forgotForm,
+                    newPassword: e.target.value,
+                  })
+                }
+                placeholder="New Password"
+                minLength={6}
+                required
+              />
+
+              <input
+                type="password"
+                value={forgotForm.confirmPassword}
+                onChange={(e) =>
+                  setForgotForm({
+                    ...forgotForm,
+                    confirmPassword: e.target.value,
+                  })
+                }
+                placeholder="Confirm New Password"
+                minLength={6}
+                required
+              />
+
+              <button
+                type="submit"
+                disabled={forgotLoading}
+                style={{ backgroundColor: config.color }}
+              >
+                {forgotLoading ? "Resetting..." : "Reset Password"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
