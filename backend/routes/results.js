@@ -60,51 +60,17 @@ const gradeFromPercentage = (percentage, passingPercent = 40) => {
 };
 
 const calculateMarks = ({ cec, midterm, external, scheme, credit }) => {
-  const numericCredit = Number(credit);
+  const hasMissing = [cec, midterm, external].some((value) => value === null || value === undefined);
+  const cecMax = Number(scheme.cecMax);
+  const midtermMax = Number(scheme.midtermMax);
+  const externalMax = Number(scheme.externalMax);
+  const cecWeight = Number(scheme.cecWeight);
+  const midtermWeight = Number(scheme.midtermWeight);
+  const externalWeight = Number(scheme.externalWeight);
 
-  if (!Number.isFinite(numericCredit) || numericCredit < 0) {
-    throw new Error("Subject credit is missing or invalid. Please set a valid credit value for the subject.");
-  }
-
-  const values = { cec, midterm, external };
-  for (const [name, value] of Object.entries(values)) {
-    if (value !== null && value !== undefined && !Number.isFinite(Number(value))) {
-      throw new Error(`${name} marks must be a valid number.`);
-    }
-    if (value !== null && value !== undefined && Number(value) < 0) {
-      throw new Error(`${name} marks cannot be negative.`);
-    }
-  }
-
-  // Fixed CampusCore formula:
-  // CEC: 30 raw marks -> 30 final marks
-  // Midterm: 50 raw marks -> 20 final marks
-  // External: 70 raw marks -> 50 final marks
-  const cecMax = 30;
-  const midtermMax = 50;
-  const externalMax = 70;
-  const cecWeight = 30;
-  const midtermWeight = 20;
-  const externalWeight = 50;
-
-  const weightedCEC =
-    cec === null || cec === undefined
-      ? null
-      : round2((Number(cec) / cecMax) * cecWeight);
-
-  const weightedMidterm =
-    midterm === null || midterm === undefined
-      ? null
-      : round2((Number(midterm) / midtermMax) * midtermWeight);
-
-  const weightedExternal =
-    external === null || external === undefined
-      ? null
-      : round2((Number(external) / externalMax) * externalWeight);
-
-  const hasMissing = [cec, midterm, external].some(
-    (value) => value === null || value === undefined
-  );
+  const weightedCEC = cec === null || cec === undefined ? null : round2((cec / cecMax) * cecWeight);
+  const weightedMidterm = midterm === null || midterm === undefined ? null : round2((midterm / midtermMax) * midtermWeight);
+  const weightedExternal = external === null || external === undefined ? null : round2((external / externalMax) * externalWeight);
 
   if (hasMissing) {
     return {
@@ -123,22 +89,7 @@ const calculateMarks = ({ cec, midterm, external, scheme, credit }) => {
 
   const total = round2(weightedCEC + weightedMidterm + weightedExternal);
   const percentage = total;
-  const passingPercent = Number.isFinite(Number(scheme?.passingPercent))
-    ? Number(scheme.passingPercent)
-    : 40;
-
-  const gradeData = gradeFromPercentage(percentage, passingPercent);
-  const gradePoint = Number(gradeData.point ?? gradeData.gradePoint);
-  const gpe = round2(gradePoint * numericCredit);
-
-  if (
-    !Number.isFinite(total) ||
-    !Number.isFinite(percentage) ||
-    !Number.isFinite(gradePoint) ||
-    !Number.isFinite(gpe)
-  ) {
-    throw new Error("The calculated result contains an invalid numeric value.");
-  }
+  const gradeData = gradeFromPercentage(percentage, scheme.passingPercent);
 
   return {
     cecWeighted: weightedCEC,
@@ -148,8 +99,8 @@ const calculateMarks = ({ cec, midterm, external, scheme, credit }) => {
     maxTotal: 100,
     percentage,
     grade: gradeData.grade,
-    gradePoint,
-    gpe,
+    gradePoint: gradeData.gradePoint,
+    gpe: round2(Number(gradeData.gradePoint) * Number(credit || 0)),
     complete: true,
   };
 };
@@ -224,7 +175,7 @@ const readRowsFromWorkbook = (buffer) => {
   const subjectHeaderRow = matrix[subjectHeaderRowIndex] || [];
   const groups = [];
 
-  for (let start = 2; start < subjectHeaderRow.length; start += 3) {
+  for (let start = 2; start < subjectHeaderRow.length; start += 4) {
     const groupHeader = clean(subjectHeaderRow[start]);
     if (!groupHeader) continue;
     const separator = groupHeader.indexOf("|");
@@ -322,12 +273,12 @@ router.post("/schemes", requireRole("admin"), async (req, res) => {
     const semester = Number(req.body.semester);
     const academicYear = clean(req.body.academicYear);
 
-    const cecMax = 30;
-    const midtermMax = 50;
-    const externalMax = 70;
-    const cecWeight = 30;
-    const midtermWeight = 20;
-    const externalWeight = 50;
+    const cecMax = num(req.body.cecMax);
+    const midtermMax = num(req.body.midtermMax);
+    const externalMax = num(req.body.externalMax);
+    const cecWeight = num(req.body.cecWeight ?? 30);
+    const midtermWeight = num(req.body.midtermWeight ?? 20);
+    const externalWeight = num(req.body.externalWeight ?? 50);
     const passingPercent =
       req.body.passingPercent === undefined || req.body.passingPercent === ""
         ? 40
@@ -395,22 +346,15 @@ router.get("/template", requireRole("admin"), async (req, res) => {
     if (!mongoose.isValidObjectId(courseId)) {
       return res.status(400).json({ message: "Please select a valid course." });
     }
-
-    if (!Number.isInteger(semester) || semester < 1 || semester > 20) {
+    if (!Number.isInteger(semester) || semester < 1) {
       return res.status(400).json({ message: "Please select a valid semester." });
     }
-
     if (!academicYear) {
       return res.status(400).json({ message: "Academic year is required." });
     }
 
-    const course = await Course.findById(courseId)
-      .select("courseName courseCode")
-      .lean();
-
-    if (!course) {
-      return res.status(404).json({ message: "Selected course was not found." });
-    }
+    const course = await Course.findById(courseId).select("courseName courseCode").lean();
+    if (!course) return res.status(404).json({ message: "Selected course was not found." });
 
     const subjects = await Subject.find({ course: courseId, semester })
       .sort({ subjectCode: 1 })
@@ -420,18 +364,6 @@ router.get("/template", requireRole("admin"), async (req, res) => {
     if (!subjects.length) {
       return res.status(400).json({
         message: `No subjects were found for ${course.courseName}, Semester ${semester}.`,
-      });
-    }
-
-    const invalidSubject = subjects.find(
-      (subject) =>
-        !Number.isFinite(Number(subject.credits)) ||
-        Number(subject.credits) < 0
-    );
-
-    if (invalidSubject) {
-      return res.status(400).json({
-        message: `Subject ${invalidSubject.subjectCode} has an invalid credit value. Please correct the subject before generating the template.`,
       });
     }
 
@@ -446,31 +378,28 @@ router.get("/template", requireRole("admin"), async (req, res) => {
       .lean();
 
     const rows = [
-      ["CampusCore Result Entry"],
+      ["CAMPUSCORE - RESULT ENTRY TEMPLATE"],
       ["Course", course.courseName || "", "Semester", semester, "Academic Year", academicYear],
-      ["Enter only raw marks: CEC /30, Midterm /50, External /70. Total is calculated automatically."],
+      ["Assessment Scale", "CEC 30 / 30", "Midterm 50 / 20", "External 70 / 50", "Total 100"],
       [],
       [
         "StudentID",
         "StudentName",
         ...subjects.flatMap((subject) => [
-          `${subject.subjectCode} | ${subject.subjectName} | Credit ${subject.credits}`,
+          `${subject.subjectCode} | ${subject.subjectName}`,
+          "",
           "",
           "",
         ]),
       ],
-      [
-        "",
-        "",
-        ...subjects.flatMap(() => ["CEC", "Midterm", "External"]),
-      ],
+      ["", "", ...subjects.flatMap(() => ["CEC", "Midterm", "External", "Total"])],
     ];
 
     students.forEach((student) => {
       rows.push([
         student.id_no,
         student.name,
-        ...subjects.flatMap(() => ["", "", ""]),
+        ...subjects.flatMap(() => ["", "", "", ""]),
       ]);
     });
 
@@ -478,52 +407,53 @@ router.get("/template", requireRole("admin"), async (req, res) => {
       rows.push([
         "",
         "No active students were found for this course and semester.",
-        ...subjects.flatMap(() => ["", "", ""]),
+        ...subjects.flatMap(() => ["", "", "", ""]),
       ]);
     }
 
+    rows.push(
+      [],
+      ["Instructions"],
+      ["1. Student information and subject columns are generated automatically."],
+      ["2. Enter only the raw CEC, Midterm and External marks."],
+      ["3. CEC maximum = 30 and contributes 30 marks to the final 100."],
+      ["4. Midterm maximum = 50 and contributes 20 marks to the final 100."],
+      ["5. External maximum = 70 and contributes 50 marks to the final 100."],
+      ["6. Do not edit StudentID, StudentName, subject headers, or Total columns."],
+      ["7. CampusCore calculates the weighted total, percentage, grade, grade point and GPE."],
+      ["8. Upload the completed workbook from Result Management > Excel Import."],
+    );
+
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.aoa_to_sheet(rows);
-
-    const lastSubjectCol = 2 + subjects.length * 3;
+    const lastSubjectCol = 2 + subjects.length * 4;
 
     worksheet["!merges"] = [
       { s: { r: 0, c: 0 }, e: { r: 0, c: lastSubjectCol - 1 } },
-      ...subjects.map((_subject, index) => {
-        const startCol = 2 + index * 3;
-        return {
-          s: { r: 4, c: startCol },
-          e: { r: 4, c: startCol + 2 },
-        };
-      }),
     ];
 
-    worksheet["!freeze"] = { xSplit: 2, ySplit: 6 };
+    subjects.forEach((_subject, index) => {
+      const startCol = 2 + index * 4;
+      worksheet["!merges"].push({
+        s: { r: 4, c: startCol },
+        e: { r: 4, c: startCol + 3 },
+      });
+    });
 
+    worksheet["!freeze"] = { xSplit: 2, ySplit: 6 };
     worksheet["!cols"] = [
       { wch: 18 },
-      { wch: 28 },
+      { wch: 26 },
       ...subjects.flatMap(() => [
+        { wch: 14 },
         { wch: 12 },
         { wch: 12 },
-        { wch: 12 },
+        { wch: 11 },
       ]),
     ];
 
-    const headerRange = XLSX.utils.decode_range(worksheet["!ref"]);
-    worksheet["!autofilter"] = {
-      ref: XLSX.utils.encode_range({
-        s: { r: 5, c: 0 },
-        e: { r: Math.max(headerRange.e.r, 5), c: lastSubjectCol - 1 },
-      }),
-    };
-
     XLSX.utils.book_append_sheet(workbook, worksheet, "Results");
-
-    const output = XLSX.write(workbook, {
-      type: "buffer",
-      bookType: "xlsx",
-    });
+    const output = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
 
     const safeCourse = String(course.courseCode || course.courseName || "Course")
       .replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -534,7 +464,7 @@ router.get("/template", requireRole("admin"), async (req, res) => {
     );
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename=CampusCore_${safeCourse}_Sem${semester}_Result_Entry.xlsx`
+      `attachment; filename=CampusCore_${safeCourse}_Sem${semester}_Result_Template.xlsx`
     );
 
     return res.send(output);
@@ -643,14 +573,14 @@ router.post("/import", requireRole("admin"), upload.single("file"), async (req, 
       if (midterm !== null && Number.isNaN(midterm)) errors.push(`Row ${rowNumber}: Midterm must be a number.`);
       if (external !== null && Number.isNaN(external)) errors.push(`Row ${rowNumber}: External must be a number.`);
 
-      if (cec !== null && !Number.isNaN(cec) && cec > 30) {
-        errors.push(`Row ${rowNumber}: CEC ${cec} exceeds the maximum 30.`);
+      if (cec !== null && !Number.isNaN(cec) && cec > scheme.cecMax) {
+        errors.push(`Row ${rowNumber}: CEC ${cec} exceeds the maximum ${scheme.cecMax}.`);
       }
-      if (midterm !== null && !Number.isNaN(midterm) && midterm > 50) {
-        errors.push(`Row ${rowNumber}: Midterm ${midterm} exceeds the raw maximum 50.`);
+      if (midterm !== null && !Number.isNaN(midterm) && midterm > scheme.midtermMax) {
+        errors.push(`Row ${rowNumber}: Midterm ${midterm} exceeds the raw maximum ${scheme.midtermMax}.`);
       }
-      if (external !== null && !Number.isNaN(external) && external > 70) {
-        errors.push(`Row ${rowNumber}: External ${external} exceeds the raw maximum 70.`);
+      if (external !== null && !Number.isNaN(external) && external > scheme.externalMax) {
+        errors.push(`Row ${rowNumber}: External ${external} exceeds the raw maximum ${scheme.externalMax}.`);
       }
 
       if ([cec, midterm, external].some((value) => value !== null && Number.isNaN(value))) return;
@@ -658,25 +588,13 @@ router.post("/import", requireRole("admin"), upload.single("file"), async (req, 
         errors.push(`Row ${rowNumber}: Marks cannot be negative.`);
       }
 
-      const credit = num(subject.credits);
-      if (credit === null || Number.isNaN(credit) || credit < 0) {
-        errors.push(`Row ${rowNumber}: Subject ${subjectCode} has an invalid credit value in the database.`);
-        return;
-      }
-
-      let calculated;
-      try {
-        calculated = calculateMarks({
-          cec,
-          midterm,
-          external,
-          scheme,
-          credit,
-        });
-      } catch (calculationError) {
-        errors.push(`Row ${rowNumber}: ${calculationError.message}`);
-        return;
-      }
+      const calculated = calculateMarks({
+        cec,
+        midterm,
+        external,
+        scheme,
+        credit: subject.credits,
+      });
 
       validRows.push({
         rowNumber,
@@ -684,7 +602,7 @@ router.post("/import", requireRole("admin"), upload.single("file"), async (req, 
         subject,
         academicYear,
         semester,
-        credit,
+        credit: Number(subject.credits || 0),
         cec,
         midterm,
         external,
@@ -719,35 +637,6 @@ router.post("/import", requireRole("admin"), upload.single("file"), async (req, 
           gradePoint: row.gradePoint,
           status: row.complete ? "Complete" : "Pending Marks",
         })),
-      });
-    }
-
-    const invalidCalculatedRows = validRows.filter((row) => {
-      if (!Number.isFinite(Number(row.credit))) return true;
-
-      if (!row.complete) {
-        return [row.cecWeighted, row.midtermWeighted, row.externalWeighted]
-          .some((value) => value !== null && !Number.isFinite(Number(value)));
-      }
-
-      return [
-        row.cecWeighted,
-        row.midtermWeighted,
-        row.externalWeighted,
-        row.total,
-        row.percentage,
-        row.gradePoint,
-        row.gpe,
-      ].some((value) => !Number.isFinite(Number(value)));
-    });
-
-    if (invalidCalculatedRows.length) {
-      return res.status(400).json({
-        message: "Import validation failed because one or more calculated result values are invalid.",
-        errors: invalidCalculatedRows.map(
-          (row) =>
-            `Row ${row.rowNumber}: Invalid calculated result for ${row.student.id_no} / ${row.subject.subjectCode}.`
-        ),
       });
     }
 

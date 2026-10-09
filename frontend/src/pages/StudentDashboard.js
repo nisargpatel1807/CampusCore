@@ -9,6 +9,7 @@ import StudentCounselingPanel from "../components/StudentCounselingPanel";
 import { useNavigate, useLocation } from "react-router-dom";
 import "../index.css";
 
+
 const STUDENT_API = "http://localhost:5000/api/student";
 const ATTENDANCE_MIN_PERCENT = 80;
 
@@ -53,6 +54,7 @@ export default function StudentDashboard() {
     JSON.parse(localStorage.getItem("user") || "{}"),
   );
   const token = localStorage.getItem("token");
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Student Analytics & Core Data
   const [data, setData] = useState({
@@ -825,18 +827,182 @@ if (res.data.studentInfo) {
 
   return (
   <>
-    <div className="flex h-screen bg-gray-100 font-sans">
+    <style>{`
+.cc-student-shell {
+  background: linear-gradient(135deg, #fff7ed 0%, #f3f7ff 52%, #fff1e7 100%);
+}
+.cc-student-shell .cc-main-container {
+  background: linear-gradient(135deg, #fff8f1 0%, #f4f7ff 55%, #fff1e7 100%);
+  min-width: 0;
+}
+.cc-student-shell .cc-topbar {
+  background: rgba(255,255,255,.94);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(37,99,235,.10);
+}
+.cc-student-sidebar {
+  position: relative;
+  border-radius: 0 28px 28px 0;
+  background: linear-gradient(160deg, #2146bd 0%, #2458d5 48%, #1746b4 100%) !important;
+  box-shadow: 8px 0 28px rgba(29,78,216,.18);
+  transition: width .32s cubic-bezier(.2,.8,.2,1), flex-basis .32s cubic-bezier(.2,.8,.2,1), border-radius .25s ease;
+  overflow: visible !important;
+  z-index: 20;
+}
+.cc-student-sidebar.cc-sidebar-expanded { width: 288px; flex-basis: 288px; }
+.cc-student-sidebar.cc-sidebar-collapsed { width: 86px; flex-basis: 86px; }
+.cc-student-sidebar .cc-brand-card {
+  border-radius: 20px;
+  border: 1px solid rgba(255,255,255,.22);
+  background: linear-gradient(135deg, rgba(255,255,255,.18), rgba(255,255,255,.07));
+  box-shadow: 0 12px 28px rgba(9,30,92,.16);
+}
+.cc-student-sidebar .cc-brand-copy { min-width: 0; transition: opacity .18s ease, width .25s ease; }
+.cc-student-sidebar .cc-brand-card {
+  min-height: 98px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 10px 12px !important;
+  transition: padding .25s ease, min-height .25s ease, border-radius .25s ease;
+}
+.cc-student-sidebar .cc-brand-logo-wrap {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 50px;
+}
+.cc-student-sidebar .cc-brand-full-logo {
+  display: block;
+  width: min(100%, 245px);
+  height: 50px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 5px rgba(0,0,0,.12));
+  transition: opacity .2s ease, transform .25s ease;
+}
+.cc-student-sidebar .cc-brand-icon-logo {
+  display: none;
+  width: 43px;
+  height: 43px;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 5px rgba(0,0,0,.12));
+}
+.cc-student-sidebar .cc-brand-workspace {
+  margin: 0;
+  color: rgba(255,255,255,.88);
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 650;
+  text-align: center;
+  letter-spacing: .01em;
+}
+.cc-student-sidebar.cc-sidebar-collapsed .cc-brand-card {
+  min-height: 76px;
+  padding: 8px 5px !important;
+  gap: 0;
+}
+.cc-student-sidebar.cc-sidebar-collapsed .cc-brand-logo-wrap { min-height: 48px; }
+.cc-student-sidebar.cc-sidebar-collapsed .cc-brand-full-logo,
+.cc-student-sidebar.cc-sidebar-collapsed .cc-brand-workspace { display: none !important; }
+.cc-student-sidebar.cc-sidebar-collapsed .cc-brand-icon-logo { display: block; }
+.cc-student-sidebar .cc-brand-card > div { justify-content: center; }
+
+.cc-student-sidebar.cc-sidebar-collapsed > div { padding-left: .5rem !important; padding-right: .5rem !important; }
+.cc-student-sidebar.cc-sidebar-collapsed .cc-brand-card { padding: .7rem .25rem !important; }
+.cc-student-sidebar.cc-sidebar-collapsed .cc-brand-card > div { justify-content: center; }
+.cc-student-sidebar.cc-sidebar-collapsed .cc-brand-card .cc-brand-copy,
+.cc-student-sidebar.cc-sidebar-collapsed nav > p,
+.cc-student-sidebar.cc-sidebar-collapsed nav button > span:not(:first-child) {
+  display: none !important;
+}
+.cc-student-sidebar.cc-sidebar-collapsed nav button {
+  justify-content: center;
+  padding-left: .5rem !important;
+  padding-right: .5rem !important;
+}
+.cc-student-sidebar.cc-sidebar-collapsed nav button > span:first-child {
+  margin: 0;
+}
+.cc-student-sidebar.cc-sidebar-collapsed button.cc-signout-button > span:not(:first-child) { display: none !important; }
+.cc-sidebar-toggle {
+  position: absolute;
+  top: 49px;
+  right: -30px;
+  z-index: 60;
+  width: 34px;
+  height: 52px;
+  border: 1px solid rgba(255,255,255,.45);
+  border-left: 0;
+  border-radius: 0 14px 14px 0;
+  color: white;
+  font-size: 25px;
+  line-height: 1;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 5px 6px 14px rgba(15,23,42,.2);
+  transition: filter .2s ease, width .2s ease, transform .2s ease;
+}
+.cc-sidebar-toggle:hover { filter: brightness(1.12); width: 36px; transform: translateX(2px); }
+.cc-student-sidebar .cc-sidebar-toggle { background: linear-gradient(180deg, #38bdf8 0%, #2563eb 55%, #1d4ed8 100%); }
+.cc-student-sidebar nav {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.62) rgba(255,255,255,.10);
+}
+.cc-student-sidebar nav::-webkit-scrollbar { width: 8px; }
+.cc-student-sidebar nav::-webkit-scrollbar-track { background: rgba(255,255,255,.10); border-radius: 999px; }
+.cc-student-sidebar nav::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #bae6fd, #60a5fa, #2563eb);
+  border: 2px solid rgba(255,255,255,.15);
+  border-radius: 999px;
+  transition: background .25s ease, box-shadow .25s ease;
+}
+.cc-student-sidebar nav::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #ffedd5, #fdba74, #ea580c); box-shadow: 0 0 10px rgba(251,146,60,.45); }
+.cc-student-shell .cc-stats-grid > div {
+  border: 1px solid rgba(148,163,184,.18);
+  border-radius: 19px;
+  box-shadow: 0 8px 20px rgba(15,23,42,.055);
+  transition: transform .22s ease, box-shadow .22s ease;
+}
+.cc-student-shell .cc-stats-grid > div:hover { transform: translateY(-3px); box-shadow: 0 14px 28px rgba(15,23,42,.10); }
+.cc-student-shell .cc-stats-grid > div:nth-child(1) { background: linear-gradient(135deg,#eff6ff,#ffffff) !important; border-color:#dbeafe; }
+.cc-student-shell .cc-stats-grid > div:nth-child(2) { background: linear-gradient(135deg,#fff7ed,#ffffff) !important; border-color:#fed7aa; }
+.cc-student-shell .cc-stats-grid > div:nth-child(3) { background: linear-gradient(135deg,#ecfdf5,#ffffff) !important; border-color:#bbf7d0; }
+.cc-student-shell .cc-main-container .bg-white.rounded-xl.shadow {
+  border: 1px solid rgba(148,163,184,.22);
+  box-shadow: 0 7px 20px rgba(15,23,42,.055);
+}
+.cc-student-shell .cc-main-container table tbody tr { transition: background-color .2s ease; }
+.cc-student-shell .cc-main-container table tbody tr:nth-child(odd) { background: #eff6ff !important; }
+.cc-student-shell .cc-main-container table tbody tr:nth-child(even) { background: #fff7ed !important; }
+.cc-student-shell .cc-main-container table tbody tr:hover { background: #dbeafe !important; }
+@media (max-width: 700px) {
+  .cc-student-sidebar.cc-sidebar-expanded { width: 248px; flex-basis: 248px; }
+  .cc-student-sidebar.cc-sidebar-collapsed { width: 76px; flex-basis: 76px; }
+  .cc-student-shell .cc-topbar { padding-left: 1rem !important; padding-right: 1rem !important; }
+}
+`}</style>
+    <div className={`cc-student-shell flex h-screen font-sans ${isSidebarCollapsed ? "cc-sidebar-is-collapsed" : ""}`}>
       {/* SIDEBAR */}
-      <aside className="w-72 shrink-0 bg-gradient-to-b from-blue-800 via-blue-700 to-blue-600 text-white shadow-2xl flex h-screen flex-col overflow-hidden">
+      <aside className={`cc-sidebar cc-student-sidebar shrink-0 text-white shadow-2xl flex h-screen flex-col overflow-visible ${isSidebarCollapsed ? "cc-sidebar-collapsed" : "cc-sidebar-expanded"}`}>
+        <button type="button" className="cc-sidebar-toggle" aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={() => setIsSidebarCollapsed((value) => !value)}>{isSidebarCollapsed ? "›" : "‹"}</button>
         <div className="flex min-h-0 flex-1 flex-col px-4 pt-5">
-          <div className="mb-5 rounded-2xl border border-white/10 bg-white/10 px-4 py-4 shadow-lg">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/15 text-2xl shadow-inner">🎓</div>
-              <div className="min-w-0">
-                <h2 className="truncate text-xl font-extrabold tracking-tight">CampusCore</h2>
-                <p className="text-[11px] font-medium text-blue-100/90">Student Workspace</p>
-              </div>
-            </div>
+          <div className="cc-brand-card mb-5 rounded-2xl border border-white/10 bg-white/10 px-4 py-4 shadow-lg">
+            <div className="cc-brand-logo-wrap">
+<img
+  className="cc-brand-full-logo"
+  src="/CampusCore_Logo_valid1.png"
+  alt="CampusCore"
+/>              
+<img
+  className="cc-brand-icon-logo"
+  src="/CampusCore_Logo_valid2.png"
+  alt="CampusCore icon"
+/>            </div>
+            <p className="cc-brand-workspace">Student Workspace</p>
           </div>
 
           <nav className="min-h-0 flex-1 overflow-y-auto pr-1" style={{ scrollbarWidth: "thin" }}>
@@ -892,13 +1058,13 @@ if (res.data.studentInfo) {
           <button type="button" onClick={() => { setIsEditingProfile(false); setShowPasswordFields(false); setActiveModal("profile"); }} className={`mb-2 group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left text-sm font-semibold transition-all duration-200 ${activeModal === "profile" ? "bg-white text-blue-900 shadow-lg" : "text-white/95 hover:bg-white/10 hover:text-white"}`}>
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10">⚙️</span><span>Profile Settings</span>
           </button>
-          <button type="button" onClick={() => { localStorage.clear(); navigate("/login/student"); }} className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/10 py-3 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:bg-red-500/90 hover:shadow-xl"><span>↪</span><span>Sign Out</span></button>
+          <button type="button" onClick={() => { localStorage.clear(); navigate("/login/student"); }} className="cc-signout-button flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/10 py-3 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:bg-red-500/90 hover:shadow-xl"><span>↪</span><span>Sign Out</span></button>
         </div>
       </aside>
       {/* MAIN CONTAINER */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="cc-main-container flex-1 flex flex-col overflow-hidden">
         {/* TOPBAR */}
-        <div className="bg-white p-4 px-8 flex justify-between items-center shadow border-b border-gray-200">
+        <div className="cc-topbar bg-white p-4 px-8 flex justify-between items-center shadow border-b border-gray-200">
           <div>
             <h1 className="text-xl font-bold text-gray-800">
               Student Workspace
@@ -954,7 +1120,7 @@ if (res.data.studentInfo) {
           {/* WORKSPACE CONTENT */}
           <div className="p-5 overflow-y-auto space-y-6">
             {/* STATS */}
-            <div className="grid md:grid-cols-3 gap-5">
+            <div className="cc-stats-grid grid md:grid-cols-3 gap-5">
               <div
                 onClick={() => setActiveModal("courses")}
                 className="bg-white p-5 rounded-xl shadow cursor-pointer hover:shadow-lg transition"

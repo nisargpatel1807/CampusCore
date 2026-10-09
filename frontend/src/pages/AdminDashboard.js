@@ -8,6 +8,8 @@ import AdminResultPanel from "../components/AdminResultPanel";
 import { useNavigate, useLocation } from "react-router-dom";
 import "../index.css";
 
+const CAMPUSCORE_FULL_LOGO = "/CampusCore_Logo_valid1.png";
+const CAMPUSCORE_ICON_LOGO = "/CampusCore_Logo_valid2.png";
 
 export default function AdminDashboard() {
   const calculateYearFromSem = (semNumber) => {
@@ -37,6 +39,7 @@ export default function AdminDashboard() {
 
   // Modal selector
   const [activeModal, setActiveModal] = useState(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isEditingAdminProfile, setIsEditingAdminProfile] = useState(false);
   const [showPasswordFields, setShowPasswordFields] = useState(false);
 
@@ -954,122 +957,214 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100 font-sans">
+    <div className="cc-admin-shell relative flex h-screen bg-slate-50 font-sans">
+
+      <style>{`
+        .cc-admin-shell {
+          --cc-orange: #f97316;
+          background: linear-gradient(135deg, #fff7ed 0%, #f8fafc 36%, #fff1e6 100%);
+        }
+        .cc-admin-sidebar {
+          position: relative; z-index: 20; width: 288px; flex: 0 0 288px;
+          border-radius: 0 30px 30px 0; overflow: hidden;
+          transition: width 320ms cubic-bezier(.2,.8,.2,1), flex-basis 320ms cubic-bezier(.2,.8,.2,1), border-radius 320ms ease;
+          background: linear-gradient(155deg, #9a3412 0%, #c2410c 38%, #ea580c 72%, #fb923c 100%);
+          box-shadow: 12px 0 35px rgba(154,52,18,.18), inset -1px 0 rgba(255,255,255,.2);
+        }
+        .cc-admin-sidebar.cc-sidebar-collapsed { width: 84px; flex-basis: 84px; border-radius: 0 25px 25px 0; }
+        .cc-admin-sidebar nav { scrollbar-width: thin; scrollbar-color: #fdba74 rgba(255,255,255,.08); scrollbar-gutter: stable; }
+        .cc-admin-sidebar nav::-webkit-scrollbar { width: 7px; }
+        .cc-admin-sidebar nav::-webkit-scrollbar-track { background: rgba(255,255,255,.09); border-radius: 99px; margin: 8px 0; }
+        .cc-admin-sidebar nav::-webkit-scrollbar-thumb {
+          border-radius: 99px; border: 1px solid rgba(255,255,255,.35);
+          background: linear-gradient(180deg, #ffedd5 0%, #fdba74 45%, #f97316 100%);
+          background-size: 100% 220%; animation: ccScrollbarGlow 2.8s ease-in-out infinite;
+        }
+        @keyframes ccScrollbarGlow {
+          0%,100% { background-position: 0 0; box-shadow: 0 0 4px rgba(255,237,213,.28); }
+          50% { background-position: 0 100%; box-shadow: 0 0 9px rgba(255,237,213,.6); }
+        }
+        .cc-sidebar-toggle {
+          position: absolute; top: 34px; z-index: 40; width: 35px; height: 48px;
+          display: grid; place-items: center; border: 1px solid rgba(255,255,255,.78);
+          border-left: 0; border-radius: 0 15px 15px 0; color: #fff;
+          background: linear-gradient(160deg, #fb923c 0%, #ea580c 55%, #9a3412 100%);
+          box-shadow: 4px 7px 16px rgba(154,52,18,.25), inset 0 1px rgba(255,255,255,.35);
+          transition: left 320ms cubic-bezier(.2,.8,.2,1), transform 180ms ease, box-shadow 180ms ease;
+          animation: ccToggleBreath 3.2s ease-in-out infinite;
+        }
+        .cc-sidebar-toggle:hover { transform: translateX(2px); box-shadow: 5px 8px 20px rgba(154,52,18,.35), inset 0 1px rgba(255,255,255,.45); }
+        @keyframes ccToggleBreath { 0%,100% { filter: saturate(1); } 50% { filter: saturate(1.18) brightness(1.06); } }
+        .cc-sidebar-collapsed .cc-brand-copy, .cc-sidebar-collapsed .cc-nav-label,
+        .cc-sidebar-collapsed .cc-nav-section-label, .cc-sidebar-collapsed .cc-bottom-label { display: none !important; }
+        .cc-brand-full-logo { display: block; width: 100%; max-width: 240px; height: 80px; object-fit: contain; object-position: left center; }
+        .cc-brand-icon-logo { display: none; width: 50px; height: 50px; object-fit: contain; }
+        .cc-sidebar-collapsed .cc-brand-full-logo { display: none; }
+        .cc-sidebar-collapsed .cc-brand-icon-logo { display: block; }
+        .cc-sidebar-collapsed .cc-brand-card { justify-content: center; padding-left: 8px; padding-right: 8px; }
+        .cc-sidebar-collapsed .cc-nav-button { justify-content: center; padding-left: 8px; padding-right: 8px; }
+        .cc-sidebar-collapsed .cc-bottom-actions { padding-left: 8px; padding-right: 8px; }
+        .cc-sidebar-collapsed .cc-signout { gap: 0; padding-left: 8px; padding-right: 8px; }
+        .cc-workspace {
+          background: radial-gradient(ellipse at 0% 0%, rgba(251,146,60,.13), transparent 36%),
+            radial-gradient(ellipse at 100% 18%, rgba(249,115,22,.09), transparent 32%),
+            linear-gradient(135deg, #fffaf5 0%, #f8fafc 46%, #fff1e6 100%) !important;
+        }
+        .cc-admin-card { border-color: rgba(251,146,60,.18) !important; box-shadow: 0 7px 24px rgba(124,45,18,.035); }
+        .cc-admin-card:hover { box-shadow: 0 12px 28px rgba(124,45,18,.08); }
+        .cc-stat-card { position: relative; overflow: hidden; border-width: 1px !important; }
+        .cc-stat-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--cc-stat-accent, #f97316); }
+        .cc-stat-card > * { position: relative; }
+        .cc-subject-row, .cc-student-row, .cc-teacher-row, .cc-course-row { transition: background-color 180ms ease, box-shadow 180ms ease; }
+        .cc-subject-row:nth-child(odd) { background: #ffffff; }
+        .cc-subject-row:nth-child(even) { background: #f8fafc; }
+        .cc-student-row:nth-child(odd), .cc-teacher-row:nth-child(odd) { background: #f3f8ff !important; }
+        .cc-student-row:nth-child(even), .cc-teacher-row:nth-child(even) { background: #fff7ed !important; }
+        .cc-student-row:hover, .cc-teacher-row:hover, .cc-course-row:hover { box-shadow: inset 3px 0 #f97316; filter: saturate(1.04); }
+        .cc-subject-row:hover { box-shadow: inset 3px 0 #cbd5e1; }
+        @media (prefers-reduced-motion: reduce) {
+          .cc-admin-sidebar, .cc-sidebar-toggle, .cc-admin-sidebar nav::-webkit-scrollbar-thumb,
+          .cc-subject-row, .cc-student-row, .cc-teacher-row, .cc-course-row { animation: none !important; transition: none !important; }
+        }
+        @media (max-width: 760px) {
+          .cc-admin-sidebar { width: 76px; flex-basis: 76px; border-radius: 0 20px 20px 0; }
+          .cc-admin-sidebar .cc-brand-copy, .cc-admin-sidebar .cc-nav-label,
+          .cc-admin-sidebar .cc-nav-section-label, .cc-admin-sidebar .cc-bottom-label { display: none !important; }
+          .cc-admin-sidebar .cc-brand-card, .cc-admin-sidebar .cc-nav-button { justify-content: center; padding-left: 7px; padding-right: 7px; }
+          .cc-admin-sidebar .cc-bottom-actions { padding-left: 7px; padding-right: 7px; }
+          .cc-admin-sidebar .cc-brand-full-logo { display: none; }
+          .cc-admin-sidebar .cc-brand-icon-logo { display: block; }
+          .cc-sidebar-toggle { display: none; }
+        }
+      `}</style>
       {/* SIDEBAR */}
-      <aside className="w-72 shrink-0 bg-gradient-to-b from-orange-800 via-orange-700 to-orange-600 text-white shadow-2xl flex h-screen flex-col overflow-hidden">
+      <aside className={`cc-admin-sidebar shrink-0 text-white shadow-2xl flex h-screen flex-col overflow-hidden ${isSidebarCollapsed ? "cc-sidebar-collapsed" : ""}`}>
         <div className="flex min-h-0 flex-1 flex-col px-4 pt-5">
           {/* Brand */}
-          <div className="mb-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 shadow-lg backdrop-blur-sm">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-2xl shadow-inner">🎓</div>
-              <div className="min-w-0">
-                <h2 className="truncate text-xl font-extrabold tracking-tight">CampusCore</h2>
-                <p className="text-[11px] font-medium text-orange-100/80">Admin Control Center</p>
+          <div className="cc-brand-card mb-5 flex items-center rounded-2xl border border-white/15 bg-white/10 px-4 py-4 shadow-lg backdrop-blur-sm transition-all duration-300">
+            <div className="flex min-w-0 w-full items-center justify-center">
+              <img className="cc-brand-full-logo" src={CAMPUSCORE_FULL_LOGO} alt="CampusCore" />
+              <img className="cc-brand-icon-logo" src={CAMPUSCORE_ICON_LOGO} alt="CampusCore" />
+              <div className="cc-brand-copy hidden">
+                <p className="text-[11px] font-medium text-orange-100/90">Admin Control Center</p>
               </div>
             </div>
           </div>
+          <p className="cc-brand-copy -mt-3 mb-4 text-center text-[11px] font-semibold tracking-wide text-orange-100/90">Admin Control Center</p>
 
           {/* Navigation */}
-          <nav className="min-h-0 flex-1 overflow-y-auto pr-1" style={{ scrollbarWidth: "thin" }}>
-            <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-orange-100/60">Main Menu</p>
+          <nav className="min-h-0 flex-1 overflow-y-auto pr-1 cc-nav-scroll" style={{ scrollbarWidth: "thin" }}>
+            <p className="cc-nav-section-label px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-orange-100/75">Main Menu</p>
             <div className="space-y-1.5 text-sm">
-              <button type="button" onClick={() => setActiveModal(null)} className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === null ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
-                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm ${activeModal === null ? "bg-orange-100" : "bg-white/10 group-hover:bg-white/15"}`}>🏠</span>
-                <span>Dashboard Overview</span>
+              <button type="button" onClick={() => setActiveModal(null)} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === null ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+                <span className={`cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm ${activeModal === null ? "bg-orange-100" : "bg-white/10 group-hover:bg-white/15"}`}>🏠</span>
+                <span className="cc-nav-label">Dashboard Overview</span>
               </button>
 
-              <button type="button" onClick={() => setActiveModal("viewCourses")} className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "viewCourses" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">📚</span>
-                <span>View &amp; Edit Courses</span>
+              <button type="button" onClick={() => setActiveModal("viewCourses")} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "viewCourses" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+                <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">📚</span>
+                <span className="cc-nav-label">View &amp; Edit Courses</span>
               </button>
 
-              <button type="button" onClick={() => setActiveModal("addCourse")} className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "addCourse" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">➕</span>
-                <span>Add Course</span>
+              <button type="button" onClick={() => setActiveModal("addCourse")} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "addCourse" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+                <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">➕</span>
+                <span className="cc-nav-label">Add Course</span>
               </button>
 
-              <button type="button" onClick={() => setActiveModal("addSubject")} className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "addSubject" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">📝</span>
-                <span>Add Subject</span>
+              <button type="button" onClick={() => setActiveModal("addSubject")} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "addSubject" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+                <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">📝</span>
+                <span className="cc-nav-label">Add Subject</span>
               </button>
 
-              <button type="button" onClick={() => setActiveModal("assignTeacher")} className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "assignTeacher" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">👨‍🏫</span>
-                <span>Assign Subject</span>
+              <button type="button" onClick={() => setActiveModal("assignTeacher")} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "assignTeacher" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+                <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">👨‍🏫</span>
+                <span className="cc-nav-label">Assign Subject</span>
               </button>
 
-              <button type="button" onClick={() => { setActiveModal("viewTeachers"); fetchTeachers(); }} className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "viewTeachers" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">🧑‍🏫</span>
-                <span>View &amp; Edit Teachers</span>
+              <button type="button" onClick={() => { setActiveModal("viewTeachers"); fetchTeachers(); }} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "viewTeachers" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+                <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">🧑‍🏫</span>
+                <span className="cc-nav-label">View &amp; Edit Teachers</span>
               </button>
 
-              <button type="button" onClick={() => { setActiveModal("viewStudents"); fetchStudents(); }} className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "viewStudents" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">👨‍🎓</span>
-                <span>View Students</span>
+              <button type="button" onClick={() => { setActiveModal("viewStudents"); fetchStudents(); }} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "viewStudents" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+                <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">👨‍🎓</span>
+                <span className="cc-nav-label">View Students</span>
               </button>
 
               <div className="my-3 border-t border-white/10" />
-              <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-orange-100/60">Academic &amp; Services</p>
+              <p className="cc-nav-section-label px-2 pb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-orange-100/75">Academic &amp; Services</p>
 
-              <button type="button" onClick={() => { fetchAdminServiceRequests(); setActiveModal("adminServiceDesk"); }} className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "adminServiceDesk" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">🛠️</span>
-                <span>Facility Helpdesk</span>
+              <button type="button" onClick={() => { fetchAdminServiceRequests(); setActiveModal("adminServiceDesk"); }} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "adminServiceDesk" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+                <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">🛠️</span>
+                <span className="cc-nav-label">Facility Helpdesk</span>
               </button>
 
-              <button type="button" onClick={() => { fetchAdminCalendarEvents(); setActiveModal("adminCalendarManager"); }} className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "adminCalendarManager" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">📅</span>
-                <span>Manage Calendar</span>
+              <button type="button" onClick={() => { fetchAdminCalendarEvents(); setActiveModal("adminCalendarManager"); }} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "adminCalendarManager" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+                <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">📅</span>
+                <span className="cc-nav-label">Manage Calendar</span>
               </button>
 
-              <button type="button" onClick={() => setActiveModal("adminTimetableManager")} className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "adminTimetableManager" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">🗓️</span>
-                <span>Manage Timetable</span>
+              <button type="button" onClick={() => setActiveModal("adminTimetableManager")} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "adminTimetableManager" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+                <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">🗓️</span>
+                <span className="cc-nav-label">Manage Timetable</span>
               </button>
 
-              <button type="button" onClick={() => setShowAdminAttendanceReport(true)} className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${showAdminAttendanceReport ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">📊</span>
-                <span>Attendance Reports</span>
+              <button type="button" onClick={() => setShowAdminAttendanceReport(true)} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${showAdminAttendanceReport ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+                <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">📊</span>
+                <span className="cc-nav-label">Attendance Reports</span>
               </button>
 
-              <button type="button" onClick={() => setShowAdminResults(true)} className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${showAdminResults ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">📑</span>
-                <span>Result Management</span>
+              <button type="button" onClick={() => setShowAdminResults(true)} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${showAdminResults ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+                <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">📑</span>
+                <span className="cc-nav-label">Result Management</span>
               </button>
 
-              <button type="button" onClick={openCourseTrackerManager} className="group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold text-white/90 transition-all duration-200 hover:bg-white/10 hover:text-white">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">📘</span>
-                <span>Course Tracker</span>
+              <button type="button" onClick={openCourseTrackerManager} className="cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold text-white/90 transition-all duration-200 hover:bg-white/10 hover:text-white">
+                <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">📘</span>
+                <span className="cc-nav-label">Course Tracker</span>
               </button>
 
-              <button type="button" onClick={() => setActiveModal("adminAnnouncements")} className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "adminAnnouncements" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">📢</span>
-                <span>Campus Notices &amp; Events</span>
+              <button type="button" onClick={() => setActiveModal("adminAnnouncements")} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "adminAnnouncements" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+                <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">📢</span>
+                <span className="cc-nav-label">Campus Notices &amp; Events</span>
               </button>
             </div>
           </nav>
         </div>
 
         {/* Bottom actions */}
-        <div className="border-t border-white/10 bg-black/10 px-4 pb-4 pt-4">
-          <button type="button" onClick={() => setActiveModal("adminProfile")} className={`mb-2 group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left text-sm font-semibold transition-all duration-200 ${activeModal === "adminProfile" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+        <div className="cc-bottom-actions border-t border-white/15 bg-black/10 px-4 pb-4 pt-4 transition-all duration-300">
+          <button type="button" onClick={() => setActiveModal("adminProfile")} className={`cc-nav-button mb-2 group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left text-sm font-semibold transition-all duration-200 ${activeModal === "adminProfile" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">⚙️</span>
-            <span>Profile &amp; Security</span>
+            <span className="cc-bottom-label">Profile &amp; Security</span>
           </button>
           <button
             type="button"
             onClick={() => { localStorage.clear(); navigate("/login/admin"); }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/10 py-3 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:bg-red-500/90 hover:shadow-xl"
+            className="cc-signout flex w-full items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/15 py-3 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:bg-red-500/90 hover:shadow-xl"
           >
             <span>↪</span>
             <span>Sign Out</span>
           </button>
         </div>
       </aside>
+      <button
+        type="button"
+        className="cc-sidebar-toggle"
+        style={{ left: isSidebarCollapsed ? "72px" : "276px" }}
+        onClick={() => setIsSidebarCollapsed((current) => !current)}
+        aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+      >
+        <span aria-hidden="true" style={{ fontSize: 24, lineHeight: 1 }}>
+          {isSidebarCollapsed ? "›" : "‹"}
+        </span>
+      </button>
 
       {/* MAIN CONTAINER */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* NAVBAR */}
-        <div className="bg-white p-4 px-8 flex justify-between items-center shadow-sm border-b">
+        <div className="bg-white p-4 px-8 flex justify-between items-center shadow-sm border-b border-slate-200">
           <h1 className="text-xl font-bold text-gray-800">Admin Control Center</h1>
           <div className="flex items-center gap-3">
             <NotificationBell />
@@ -1089,30 +1184,30 @@ export default function AdminDashboard() {
         </div>
 
         {/* WORKSPACE */}
-        <div className="p-6 overflow-y-auto space-y-6">
+        <div className="cc-workspace p-6 overflow-y-auto space-y-6">
           {/* STATS */}
           <div className="grid md:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-xl shadow-sm border">
-              <p className="text-gray-500 text-xs font-semibold uppercase">Total Students</p>
+            <div className="cc-admin-card cc-stat-card p-5 rounded-2xl shadow-sm transition-shadow duration-200 hover:shadow-md" style={{ background: "linear-gradient(135deg, #eff6ff 0%, #ffffff 100%)", borderColor: "#bfdbfe", "--cc-stat-accent": "#3b82f6" }}>
+              <p className="text-gray-600 text-xs font-semibold uppercase">Total Students</p>
               <h1 className="text-2xl font-extrabold text-blue-600 mt-1">{stats.students}</h1>
             </div>
-            <div className="bg-white p-5 rounded-xl shadow-sm border">
-              <p className="text-gray-500 text-xs font-semibold uppercase">Total Teachers</p>
+            <div className="cc-admin-card cc-stat-card p-5 rounded-2xl shadow-sm transition-shadow duration-200 hover:shadow-md" style={{ background: "linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%)", borderColor: "#bbf7d0", "--cc-stat-accent": "#16a34a" }}>
+              <p className="text-gray-600 text-xs font-semibold uppercase">Total Teachers</p>
               <h1 className="text-2xl font-extrabold text-green-600 mt-1">{stats.teachers}</h1>
             </div>
-            <div className="bg-white p-5 rounded-xl shadow-sm border">
-              <p className="text-gray-500 text-xs font-semibold uppercase">Degree Courses</p>
+            <div className="cc-admin-card cc-stat-card p-5 rounded-2xl shadow-sm transition-shadow duration-200 hover:shadow-md" style={{ background: "linear-gradient(135deg, #faf5ff 0%, #ffffff 100%)", borderColor: "#e9d5ff", "--cc-stat-accent": "#9333ea" }}>
+              <p className="text-gray-600 text-xs font-semibold uppercase">Degree Courses</p>
               <h1 className="text-2xl font-extrabold text-purple-600 mt-1">{stats.courses}</h1>
             </div>
-            <div className="bg-white p-5 rounded-xl shadow-sm border">
-              <p className="text-gray-500 text-xs font-semibold uppercase">Total Subjects</p>
+            <div className="cc-admin-card cc-stat-card p-5 rounded-2xl shadow-sm transition-shadow duration-200 hover:shadow-md" style={{ background: "linear-gradient(135deg, #fff7ed 0%, #ffffff 100%)", borderColor: "#fed7aa", "--cc-stat-accent": "#f97316" }}>
+              <p className="text-gray-600 text-xs font-semibold uppercase">Total Subjects</p>
               <h1 className="text-2xl font-extrabold text-orange-500 mt-1">{stats.subjects}</h1>
             </div>
           </div>
 
           {/* ACTION MODULE CARDS */}
           <div className="grid md:grid-cols-3 gap-5">
-            <div className="bg-white p-5 rounded-xl shadow-sm border space-y-3">
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80 space-y-3 transition-shadow duration-200 hover:shadow-md">
               <h3 className="font-bold text-gray-800">Student Management</h3>
               <button onClick={() => setActiveModal("addStudent")} className="w-full py-2 bg-orange-50 hover:bg-orange-100 text-orange-600 font-semibold rounded-lg text-sm transition">
                 + Enroll New Student
@@ -1122,7 +1217,7 @@ export default function AdminDashboard() {
               </button>
             </div>
 
-            <div className="bg-white p-5 rounded-xl shadow-sm border space-y-3">
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80 space-y-3 transition-shadow duration-200 hover:shadow-md">
               <h3 className="font-bold text-gray-800">Faculty Management</h3>
               <button onClick={() => setActiveModal("addTeacher")} className="w-full py-2 bg-green-50 hover:bg-green-100 text-green-700 font-semibold rounded-lg text-sm transition">
                 + Add Teacher
@@ -1132,7 +1227,7 @@ export default function AdminDashboard() {
               </button>
             </div>
 
-            <div className="bg-white p-5 rounded-xl shadow-sm border space-y-3">
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200/80 space-y-3 transition-shadow duration-200 hover:shadow-md">
               <h3 className="font-bold text-gray-800">Curriculum Management</h3>
               <div className="grid grid-cols-2 gap-2">
                 <button onClick={() => setActiveModal("addCourse")} className="py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 font-semibold rounded-lg text-xs transition">
@@ -1150,7 +1245,7 @@ export default function AdminDashboard() {
           </div>
 
           {/* MASTER SUBJECT DIRECTORY TABLE */}
-          <div className="bg-white p-5 rounded-xl shadow-sm border">
+          <div className="cc-admin-card bg-white/95 p-5 rounded-2xl shadow-sm border border-slate-200/80 transition-shadow duration-200 hover:shadow-md">
             <div className="flex justify-between items-center mb-3">
               <h3 className="font-bold text-gray-800">Master Subject Directory & Teacher Allocations</h3>
               <button onClick={() => setActiveModal("assignTeacher")} className="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg font-semibold transition">
@@ -1173,8 +1268,11 @@ export default function AdminDashboard() {
                 {subjects.length === 0 ? (
                   <tr><td colSpan="6" className="p-4 text-center text-gray-400">No subjects configured yet.</td></tr>
                 ) : (
-                  subjects.map((sub) => (
-                    <tr key={sub._id} className="hover:bg-gray-50">
+                  subjects.map((sub, index) => (
+                    <tr
+                      key={sub._id}
+                      className="cc-subject-row"
+                    >
                       <td className="p-3 font-semibold text-gray-800">{sub.subjectName}</td>
                       <td className="p-3 font-mono text-xs text-gray-600">{sub.subjectCode}</td>
                       <td className="p-3 text-gray-600">{sub.course?.courseName || "General"}</td>
@@ -1275,8 +1373,12 @@ export default function AdminDashboard() {
                   {students.length === 0 ? (
                     <tr><td colSpan="6" className="text-center py-6 text-gray-400">No students match filters.</td></tr>
                   ) : (
-                    students.map((s) => (
-                      <tr key={s._id} className="hover:bg-gray-50">
+                    students.map((s, index) => (
+                      <tr
+                        key={s._id}
+                        className="cc-student-row"
+                        style={{ backgroundColor: index % 2 === 0 ? "#f3f8ff" : "#fff7ed" }}
+                      >
                         <td className="p-2.5 font-medium text-gray-800">{s.name}</td>
                         <td className="p-2.5 font-mono text-gray-600 font-semibold">{s.id_no}</td>
                         <td className="p-2.5 text-gray-600">{s.course}</td>
@@ -1640,8 +1742,12 @@ export default function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {teachers.map((t) => (
-                    <tr key={t._id} className="hover:bg-gray-50">
+                  {teachers.map((t, index) => (
+                    <tr
+                      key={t._id}
+                      className="cc-teacher-row"
+                      style={{ backgroundColor: index % 2 === 0 ? "#f3f8ff" : "#fff7ed" }}
+                    >
                       <td className="p-3 font-semibold text-gray-800">{t.name}</td>
                       <td className="p-3 font-mono text-gray-600 font-semibold">{t.id_no}</td>
                       <td className="p-3 text-gray-600">{t.department}</td>

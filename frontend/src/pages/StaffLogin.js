@@ -90,7 +90,7 @@ export default function StaffLogin() {
 
           <div className="staff-brand">
             <img
-              src="/CampusCore_Login_Branding_Logo.png"
+              src="/CampusCore_Logo_valid1.png"
               alt="CampusCore"
               className="staff-logo"
             />

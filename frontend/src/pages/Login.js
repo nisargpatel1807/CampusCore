@@ -187,7 +187,7 @@ export default function Login() {
 
           <div className="brand-block">
             <img
-              src="/CampusCore_Login_Branding_Logo.png"
+              src="/CampusCore_Logo_valid1.png"
               alt="CampusCore"
               className="login-logo"
             />

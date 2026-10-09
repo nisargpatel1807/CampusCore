@@ -59,7 +59,7 @@ export default function Welcome() {
       <main className="welcome-content">
         <div className="welcome-brand">
           <img
-            src="/CampusCore_Login_Branding_Logo.png"
+            src="/CampusCore_Logo_valid1.png"
             alt="CampusCore"
             className="welcome-logo"
           />
