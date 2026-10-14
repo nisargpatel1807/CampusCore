@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 
 const csvEscape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
@@ -17,11 +17,24 @@ export default function AdminAttendanceReportPanel({ onClose, courses = [], subj
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [report, setReport] = useState(null);
+  const [divisionOptions, setDivisionOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const token = localStorage.getItem("token");
 
-  const visibleSubjects = useMemo(() => subjects.filter((s) => semester === "ALL" || String(s.semester) === String(semester)), [subjects, semester]);
+  const visibleSubjects = useMemo(() => subjects.filter((s) => (semester === "ALL" || String(s.semester) === String(semester)) && (course === "ALL" || s.course?.courseName === course)), [subjects, semester, course]);
+
+  useEffect(() => {
+    const loadDivisions = async () => {
+      if (course === "ALL" || semester === "ALL") { setDivisionOptions([]); return; }
+      try {
+        const res = await axios.get("http://localhost:5000/api/divisions", { headers: { Authorization: `Bearer ${token}` }, params: { course, semester } });
+        setDivisionOptions(res.data || []);
+        if (division !== "ALL" && !(res.data || []).some(d => d.name === division)) setDivision("ALL");
+      } catch (e) { setDivisionOptions([]); }
+    };
+    loadDivisions();
+  }, [course, semester]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadReport = async () => {
     if (fromDate && toDate && fromDate > toDate) return setError("From date cannot be after to date.");
@@ -42,7 +55,7 @@ export default function AdminAttendanceReportPanel({ onClose, courses = [], subj
         <div className="grid grid-cols-1 md:grid-cols-7 gap-3 p-4 bg-gray-50 rounded-xl border mb-4">
           <select value={course} onChange={(e) => { setCourse(e.target.value); setSubjectId("ALL"); }} className="border rounded-lg p-2 text-xs bg-white"><option value="ALL">All Courses</option>{courses.map((c) => <option key={c._id} value={c.courseName}>{c.courseName}</option>)}</select>
           <select value={semester} onChange={(e) => setSemester(e.target.value)} className="border rounded-lg p-2 text-xs bg-white"><option value="ALL">All Semesters</option>{[1,2,3,4,5,6,7,8].map((s) => <option key={s} value={s}>Sem {s}</option>)}</select>
-          <select value={division} onChange={(e) => setDivision(e.target.value)} className="border rounded-lg p-2 text-xs bg-white"><option value="ALL">All Divisions</option><option value="A">Division A</option><option value="B">Division B</option><option value="C">Division C</option></select>
+          <select value={division} onChange={(e) => setDivision(e.target.value)} className="border rounded-lg p-2 text-xs bg-white"><option value="ALL">All Divisions</option>{divisionOptions.map(d => <option key={d._id} value={d.name}>Division {d.name}</option>)}</select>
           <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} className="border rounded-lg p-2 text-xs bg-white"><option value="ALL">All Subjects</option>{visibleSubjects.map((s) => <option key={s._id} value={s._id}>{s.subjectName} ({s.subjectCode})</option>)}</select>
           <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="border rounded-lg p-2 text-xs bg-white" />
           <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="border rounded-lg p-2 text-xs bg-white" />

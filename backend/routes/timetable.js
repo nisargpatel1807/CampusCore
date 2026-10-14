@@ -52,7 +52,7 @@ const studentAudienceQuery = (course, semester, division) => ({
   role: "student",
   status: true,
   semester: Number(semester),
-  division: String(division || "A").toUpperCase(),
+  division: String(division || "").toUpperCase(),
   $or: [
     { course: course.courseName },
     { course: course.courseCode },
@@ -284,7 +284,7 @@ router.post("/entries", requireRole("admin"), async (req, res) => {
     const type = clean(req.body.type) || "Lecture";
     const courseId = clean(req.body.courseId);
     const semester = Number(req.body.semester);
-    const division = clean(req.body.division || "A").toUpperCase();
+    const division = clean(req.body.division || "").toUpperCase();
     const subjectId = clean(req.body.subjectId);
     const teacherId = clean(req.body.teacherId);
     const roomId = clean(req.body.roomId);
@@ -444,7 +444,7 @@ router.post("/changes", requireRole("admin"), async (req, res) => {
     const academicYear = clean(req.body.academicYear || baseEntry?.academicYear || getDefaultAcademicYear());
     let courseId = baseEntry?.course || clean(req.body.courseId);
     const semester = Number(baseEntry?.semester ?? req.body.semester);
-    const division = clean(baseEntry?.division || req.body.division || "A").toUpperCase();
+    const division = clean(baseEntry?.division || req.body.division || "").toUpperCase();
     if (!isObjectId(courseId)) return res.status(400).json({ message: "A valid course is required." });
     if (!Number.isInteger(semester) || semester < 1 || semester > 20) return res.status(400).json({ message: "Semester must be between 1 and 20." });
 
@@ -590,7 +590,10 @@ router.get("/me/week", requireRole("admin", "teacher", "student"), async (req, r
       if (!course) return res.status(404).json({ message: "Student course could not be matched with a configured course." });
       baseFilter.course = course._id;
       baseFilter.semester = Number(student.semester || 1);
-      baseFilter.division = String(student.division || "A").toUpperCase();
+      baseFilter.division = String(student.division || "").trim().toUpperCase();
+      if (!baseFilter.division) {
+        return res.json({ academicYear, week: dates.map(day => ({ ...day, entries: [] })) });
+      }
     }
 
     let entries = await populateEntries(TimetableEntry.find(baseFilter)).lean();

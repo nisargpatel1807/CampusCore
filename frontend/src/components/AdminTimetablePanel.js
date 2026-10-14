@@ -86,6 +86,9 @@ export default function AdminTimetablePanel({ onClose }) {
   const [teachers, setTeachers] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [classrooms, setClassrooms] = useState([]);
+  const [divisionOptions, setDivisionOptions] = useState([]);
+  const [classDivisionOptions, setClassDivisionOptions] = useState([]);
+  const [changeDivisionOptions, setChangeDivisionOptions] = useState([]);
   const [entries, setEntries] = useState([]);
   const [changes, setChanges] = useState([]);
 
@@ -117,7 +120,7 @@ export default function AdminTimetablePanel({ onClose }) {
     return entries
       .filter((entry) => !courseFilter || String(entry.course?._id || entry.course) === String(courseFilter))
       .filter((entry) => !semesterFilter || Number(entry.semester) === Number(semesterFilter))
-      .filter((entry) => !divisionFilter || String(entry.division || "A") === divisionFilter.toUpperCase())
+      .filter((entry) => !divisionFilter || String(entry.division || "") === divisionFilter.toUpperCase())
       .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
   }, [entries, courseFilter, semesterFilter, divisionFilter]);
 
@@ -131,6 +134,30 @@ export default function AdminTimetablePanel({ onClose }) {
     setSubjects(metaRes.data?.subjects || []);
     setClassrooms(roomRes.data || []);
   };
+
+  useEffect(() => {
+    const fetchForForm = async (courseId, semester, setter) => {
+      const course = courses.find(c => String(c._id) === String(courseId));
+      if (!course || !semester) { setter([]); return; }
+      try { const r = await axios.get(`${API}/divisions`, { ...authConfig, params: { course: course.courseName, semester } }); setter(r.data || []); }
+      catch (e) { setter([]); }
+    };
+    fetchForForm(classForm.courseId, classForm.semester, setClassDivisionOptions);
+    fetchForForm(changeForm.courseId, changeForm.semester, setChangeDivisionOptions);
+  }, [courses, classForm.courseId, classForm.semester, changeForm.courseId, changeForm.semester]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const loadDivisions = async () => {
+      const course = courses.find(c => String(c._id) === String(courseFilter));
+      if (!course || !semesterFilter) { setDivisionOptions([]); return; }
+      try {
+        const res = await axios.get(`${API}/divisions`, { ...authConfig, params: { course: course.courseName, semester: semesterFilter } });
+        setDivisionOptions(res.data || []);
+        if (divisionFilter && !(res.data || []).some(d => d.name === divisionFilter)) setDivisionFilter("");
+      } catch (e) { setDivisionOptions([]); }
+    };
+    loadDivisions();
+  }, [courses, courseFilter, semesterFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadEntries = async () => {
     const params = new URLSearchParams();
@@ -185,7 +212,7 @@ export default function AdminTimetablePanel({ onClose }) {
     const next = emptyChangeForm(academicYear);
     next.courseId = courseFilter || "";
     next.semester = Number(semesterFilter || 1);
-    next.division = divisionFilter ? divisionFilter.toUpperCase() : "A";
+    next.division = divisionFilter ? divisionFilter.toUpperCase() : "";
     setChangeForm(next);
   };
 
@@ -438,7 +465,7 @@ export default function AdminTimetablePanel({ onClose }) {
             </div>
             <div>
               <label className="text-[10px] font-bold text-gray-600 block mb-1">Division</label>
-              <input value={divisionFilter} onChange={(e) => setDivisionFilter(e.target.value.toUpperCase())} className="w-full border rounded-lg p-2 text-xs bg-white" placeholder="A" maxLength={10} />
+              <select value={divisionFilter} onChange={(e) => setDivisionFilter(e.target.value)} className="w-full border rounded-lg p-2 text-xs bg-white"><option value="">All Divisions</option>{divisionOptions.map(d => <option key={d._id} value={d.name}>{d.name}</option>)}</select>
             </div>
           </div>
         </div>
@@ -514,7 +541,7 @@ export default function AdminTimetablePanel({ onClose }) {
                   <div><label className="text-[10px] font-bold text-gray-600">Type</label><select value={classForm.type} onChange={(e) => setClassForm({ ...classForm, type: e.target.value, subjectId: e.target.value === "Break" ? "" : classForm.subjectId })} className="w-full border rounded-lg p-2 text-xs">{ENTRY_TYPES.map((type) => <option key={type}>{type}</option>)}</select></div>
                   <div><label className="text-[10px] font-bold text-gray-600">Course</label><select value={classForm.courseId} onChange={(e) => setClassForm({ ...classForm, courseId: e.target.value, subjectId: "" })} className="w-full border rounded-lg p-2 text-xs" required><option value="">Select course</option>{courses.map((c) => <option key={c._id} value={c._id}>{c.courseName}</option>)}</select></div>
                   <div><label className="text-[10px] font-bold text-gray-600">Semester</label><select value={classForm.semester} onChange={(e) => setClassForm({ ...classForm, semester: Number(e.target.value), subjectId: "" })} className="w-full border rounded-lg p-2 text-xs">{[1,2,3,4,5,6,7,8,9,10].map((sem) => <option key={sem} value={sem}>{sem}</option>)}</select></div>
-                  <div><label className="text-[10px] font-bold text-gray-600">Division</label><input value={classForm.division} onChange={(e) => setClassForm({ ...classForm, division: e.target.value.toUpperCase() })} className="w-full border rounded-lg p-2 text-xs" maxLength={10} required /></div>
+                  <div><label className="text-[10px] font-bold text-gray-600">Division</label><select value={classForm.division} onChange={(e) => setClassForm({ ...classForm, division: e.target.value })} className="w-full border rounded-lg p-2 text-xs" required><option value="">Select division</option>{classDivisionOptions.map(d => <option key={d._id} value={d.name}>{d.name}</option>)}</select></div>
                 </div>
 
                 {classForm.type !== "Break" && (
@@ -577,7 +604,7 @@ export default function AdminTimetablePanel({ onClose }) {
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3 rounded-lg bg-orange-50 border border-orange-100 p-3">
                     <div><label className="text-[10px] font-bold text-gray-600">Course</label><select value={changeForm.courseId} onChange={(e) => setChangeForm({ ...changeForm, courseId: e.target.value, subjectId: "" })} className="w-full border rounded-lg p-2 text-xs"><option value="">Select course</option>{courses.map((c) => <option key={c._id} value={c._id}>{c.courseName}</option>)}</select></div>
                     <div><label className="text-[10px] font-bold text-gray-600">Semester</label><select value={changeForm.semester} onChange={(e) => setChangeForm({ ...changeForm, semester: Number(e.target.value), subjectId: "" })} className="w-full border rounded-lg p-2 text-xs">{[1,2,3,4,5,6,7,8,9,10].map((sem) => <option key={sem} value={sem}>{sem}</option>)}</select></div>
-                    <div><label className="text-[10px] font-bold text-gray-600">Division</label><input value={changeForm.division} onChange={(e) => setChangeForm({ ...changeForm, division: e.target.value.toUpperCase() })} className="w-full border rounded-lg p-2 text-xs" /></div>
+                    <div><label className="text-[10px] font-bold text-gray-600">Division</label><select value={changeForm.division} onChange={(e) => setChangeForm({ ...changeForm, division: e.target.value })} className="w-full border rounded-lg p-2 text-xs"><option value="">Select division</option>{changeDivisionOptions.map(d => <option key={d._id} value={d.name}>{d.name}</option>)}</select></div>
                     <div><label className="text-[10px] font-bold text-gray-600">Subject</label><select value={changeForm.subjectId} onChange={(e) => setChangeForm({ ...changeForm, subjectId: e.target.value })} className="w-full border rounded-lg p-2 text-xs"><option value="">Select subject</option>{subjects.filter((s) => String(s.course?._id || s.course) === String(changeForm.courseId) && Number(s.semester) === Number(changeForm.semester)).map((s) => <option key={s._id} value={s._id}>{s.subjectName}</option>)}</select></div>
                   </div>
                 )}

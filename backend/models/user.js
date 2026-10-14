@@ -1,16 +1,33 @@
 const mongoose = require("mongoose");
 const userSchema = new mongoose.Schema({
   name: { type: String, required: [true, "Full name is required."], trim: true, minlength: [2, "Name must be at least 2 characters long."], maxlength: [100, "Name must be at most 100 characters long."] },
+  surname: { type: String, trim: true, uppercase: true, maxlength: 50, default: "" },
+  firstName: { type: String, trim: true, uppercase: true, maxlength: 50, default: "" },
+  secondName: { type: String, trim: true, uppercase: true, maxlength: 50, default: "" },
+  lastName: { type: String, trim: true, uppercase: true, maxlength: 50, default: "" },
   id_no: { type: String, required: [true, "ID / enrollment number is required."], unique: true, trim: true, minlength: [3, "ID must be at least 3 characters long."], maxlength: [30, "ID must be at most 30 characters long."], match: [/^[A-Za-z0-9_-]+$/, "ID may contain only letters, numbers, hyphens, and underscores."] },
-  email: { type: String, required: [true, "Email is required."], unique: true, trim: true, lowercase: true, maxlength: [160, "Email must be at most 160 characters long."], match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Please provide a valid email address."] },
+  email: { type: String, required: true, unique: true, trim: true, lowercase: true, maxlength: 160, match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/ },
   password: { type: String, required: true },
   role: { type: String, enum: ["admin", "teacher", "student"], required: true },
-  department: { type: String, default: "General", trim: true, maxlength: [100, "Department is too long."] },
-  course: { type: String, default: "General", trim: true, maxlength: [100, "Course is too long."] },
-  year: { type: String, default: "1st Year", trim: true, maxlength: [30, "Year is too long."] },
-  semester: { type: Number, default: 1, min: [1, "Semester must be at least 1."], max: [20, "Semester is out of range."] },
-  division: { type: String, default: "A", trim: true, maxlength: [10, "Division is too long."] },
+  department: { type: String, default: "General", trim: true, maxlength: 100 },
+  course: { type: String, default: "General", trim: true, maxlength: 100 },
+  year: { type: String, default: "1st Year", trim: true, maxlength: 30 },
+  semester: { type: Number, default: 1, min: 1, max: 20 },
+  division: { type: String, default: "", trim: true, uppercase: true, maxlength: 10 },
   status: { type: Boolean, default: true },
   profilePhoto: { type: String, default: "", maxlength: 300 },
 }, { timestamps: true });
+userSchema.pre("validate", function(next) {
+  this.surname = String(this.surname || "").trim().toUpperCase();
+  this.firstName = String(this.firstName || "").trim().toUpperCase();
+  this.secondName = String(this.secondName || "").trim().toUpperCase();
+  this.lastName = String(this.lastName || "").trim().toUpperCase();
+  // Keep legacy records compatible while preferring the new three-part name order.
+  const parts = [this.surname, this.firstName, this.secondName].filter(Boolean);
+  if (parts.length) this.name = parts.join(" ");
+  else if (this.firstName || this.lastName) this.name = [this.firstName, this.lastName].filter(Boolean).join(" ");
+  if (this.division) this.division = String(this.division).trim().toUpperCase();
+  else this.division = "";
+  next();
+});
 module.exports = mongoose.models.User || mongoose.model("User", userSchema);

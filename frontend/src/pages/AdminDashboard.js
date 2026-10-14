@@ -3,6 +3,7 @@ import axios from "axios";
 import NotificationBell from "../components/NotificationBell";
 import HelpdeskAdminPanel from "../components/HelpdeskAdminPanel";
 import AdminTimetablePanel from "../components/AdminTimetablePanel";
+import DivisionManagementPanel from "../components/DivisionManagementPanel";
 import AdminAttendanceReportPanel from "../components/AdminAttendanceReportPanel";
 import AdminResultPanel from "../components/AdminResultPanel";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -36,6 +37,12 @@ export default function AdminDashboard() {
   // Filter States for Students
   const [selectedCourseFilter, setSelectedCourseFilter] = useState("ALL");
   const [selectedSemFilter, setSelectedSemFilter] = useState("ALL");
+  const [subjectCourseFilter, setSubjectCourseFilter] = useState("ALL");
+  const [subjectSemesterFilter, setSubjectSemesterFilter] = useState("ALL");
+  const [subjectSearch, setSubjectSearch] = useState("");
+  const [showAllSubjects, setShowAllSubjects] = useState(false);
+  const [subjectDivisionsById, setSubjectDivisionsById] = useState({});
+  const [subjectDivisionOptions, setSubjectDivisionOptions] = useState([]);
 
   // Modal selector
   const [activeModal, setActiveModal] = useState(null);
@@ -62,6 +69,10 @@ export default function AdminDashboard() {
   const [assignForm, setAssignForm] = useState({ subjectId: "", teacherId: "" });
   const [studentForm, setStudentForm] = useState({
     name: "",
+    surname: "",
+    firstName: "",
+    secondName: "",
+    lastName: "",
     id_no: "",
     password: "",
     course: "",
@@ -161,6 +172,35 @@ export default function AdminDashboard() {
     } catch (err) {
       console.error("Dashboard Load Error:", err);
     }
+  };
+
+  useEffect(() => {
+    const loadSubjectDivisions = async () => {
+      if (subjectCourseFilter === "ALL" || subjectSemesterFilter === "ALL") { setSubjectDivisionOptions([]); return; }
+      try {
+        const res = await axios.get("http://localhost:5000/api/divisions", { ...authConfig, params: { course: subjectCourseFilter, semester: subjectSemesterFilter } });
+        setSubjectDivisionOptions(res.data || []);
+      } catch (e) { setSubjectDivisionOptions([]); }
+    };
+    loadSubjectDivisions();
+  }, [subjectCourseFilter, subjectSemesterFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filteredMasterSubjects = subjects.filter(sub => {
+    const courseName = sub.course?.courseName || "General";
+    const matchesCourse = subjectCourseFilter === "ALL" || courseName === subjectCourseFilter;
+    const matchesSemester = subjectSemesterFilter === "ALL" || Number(sub.semester) === Number(subjectSemesterFilter);
+    const q = subjectSearch.trim().toLowerCase();
+    const matchesSearch = !q || `${sub.subjectName || ""} ${sub.subjectCode || ""} ${courseName} ${sub.teacher?.name || ""}`.toLowerCase().includes(q);
+    return matchesCourse && matchesSemester && matchesSearch;
+  });
+  const visibleMasterSubjects = showAllSubjects ? filteredMasterSubjects : filteredMasterSubjects.slice(0, 5);
+  const saveSubjectDivisions = async (sub) => {
+    try {
+      const divisions = subjectDivisionsById[sub._id] ?? sub.divisions ?? [];
+      await axios.put(`http://localhost:5000/api/divisions/subjects/${sub._id}/divisions`, { divisions }, authConfig);
+      await loadDashboardData();
+      alert("Subject division allocation saved.");
+    } catch (e) { alert(e.response?.data?.message || "Could not save subject division allocation."); }
   };
 
   useEffect(() => {
@@ -742,7 +782,7 @@ export default function AdminDashboard() {
     const password = teacherForm.password;
     if (name.length < 2 || name.length > 100) return alert("Faculty name must be 2–100 characters.");
     if (!/^[A-Za-z0-9_-]{3,30}$/.test(idNo)) return alert("Faculty ID must be 3–30 characters and use only letters, numbers, hyphens, or underscores.");
-    if (password.length < 6 || password.length > 100) return alert("Password must be 6–100 characters.");
+    if (password.length < 8 || password.length > 100 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[^A-Za-z0-9]/.test(password)) return alert("Use 8–100 characters with uppercase, lowercase and a special character.");
     if (!teacherForm.department.trim()) return alert("Please select a course / department.");
 
     const body = new FormData();
@@ -790,17 +830,24 @@ export default function AdminDashboard() {
 
   const handleAddStudent = async (e) => {
     e.preventDefault();
-    const name = studentForm.name.trim();
+    const surname = String(studentForm.surname || "").trim().toUpperCase();
+    const firstName = String(studentForm.firstName || "").trim().toUpperCase();
+    const secondName = String(studentForm.secondName || "").trim().toUpperCase();
+    const name = [surname, firstName, secondName].filter(Boolean).join(" ") || studentForm.name.trim().toUpperCase();
     const idNo = studentForm.id_no.trim();
     const password = studentForm.password;
 
+    if (!surname || !firstName) return alert("Surname and first name are required.");
     if (name.length < 2 || name.length > 100) return alert("Student name must be 2–100 characters.");
     if (!/^[A-Za-z0-9_-]{3,30}$/.test(idNo)) return alert("Enrollment number must be 3–30 characters and use only letters, numbers, hyphens, or underscores.");
-    if (password.length < 6 || password.length > 100) return alert("Password must be 6–100 characters.");
+    if (password.length < 8 || password.length > 100 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[^A-Za-z0-9]/.test(password)) return alert("Use 8–100 characters with uppercase, lowercase and a special character.");
     if (!studentForm.course) return alert("Please select a degree / program.");
 
     const body = new FormData();
     body.append("name", name);
+    body.append("surname", surname);
+    body.append("firstName", firstName);
+    body.append("secondName", secondName);
     body.append("id_no", idNo);
     body.append("password", password);
     body.append("course", studentForm.course);
@@ -815,6 +862,10 @@ export default function AdminDashboard() {
       alert("Student enrolled successfully! 🎓");
       setStudentForm({
         name: "",
+        surname: "",
+        firstName: "",
+        secondName: "",
+        lastName: "",
         id_no: "",
         password: "",
         course: courses[0]?.courseName || "",
@@ -1104,6 +1155,7 @@ export default function AdminDashboard() {
                 <span className="cc-nav-label">Manage Calendar</span>
               </button>
 
+              <button type="button" onClick={() => setActiveModal("divisionManager")} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "divisionManager" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}><span>Division & Allocation</span></button>
               <button type="button" onClick={() => setActiveModal("adminTimetableManager")} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "adminTimetableManager" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
                 <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">🗓️</span>
                 <span className="cc-nav-label">Manage Timetable</span>
@@ -1246,72 +1298,31 @@ export default function AdminDashboard() {
 
           {/* MASTER SUBJECT DIRECTORY TABLE */}
           <div className="cc-admin-card bg-white/95 p-5 rounded-2xl shadow-sm border border-slate-200/80 transition-shadow duration-200 hover:shadow-md">
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="font-bold text-gray-800">Master Subject Directory & Teacher Allocations</h3>
-              <button onClick={() => setActiveModal("assignTeacher")} className="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg font-semibold transition">
-                + Assign Teacher to Subject
-              </button>
+            <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+              <div><h3 className="font-bold text-gray-800">Master Subject Directory & Teacher Allocations</h3><p className="text-xs text-gray-500 mt-1">Filter subjects and manage division allocation inline.</p></div>
+              <button onClick={() => setActiveModal("assignTeacher")} className="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg font-semibold transition">+ Assign Teacher to Subject</button>
             </div>
-
-            <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
-                <tr>
-                  <th className="p-3">Subject Name</th>
-                  <th className="p-3">Code</th>
-                  <th className="p-3">Course</th>
-                  <th className="p-3">Semester</th>
-                  <th className="p-3">Faculty In-Charge</th>
-                  <th className="p-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {subjects.length === 0 ? (
-                  <tr><td colSpan="6" className="p-4 text-center text-gray-400">No subjects configured yet.</td></tr>
-                ) : (
-                  subjects.map((sub, index) => (
-                    <tr
-                      key={sub._id}
-                      className="cc-subject-row"
-                    >
-                      <td className="p-3 font-semibold text-gray-800">{sub.subjectName}</td>
-                      <td className="p-3 font-mono text-xs text-gray-600">{sub.subjectCode}</td>
-                      <td className="p-3 text-gray-600">{sub.course?.courseName || "General"}</td>
-                      <td className="p-3 text-gray-600">Sem {sub.semester}</td>
-                      <td className="p-3">
-                        {sub.teacher ? (
-                          <span className="text-xs bg-green-100 text-green-700 font-semibold px-2.5 py-1 rounded-full">
-                            👨‍🏫 {sub.teacher.name} ({sub.teacher.id_no})
-                          </span>
-                        ) : (
-                          <span className="text-xs bg-red-100 text-red-600 font-semibold px-2.5 py-1 rounded-full">
-                            Unassigned
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3 text-right">
-                        <button
-                          onClick={() => {
-                            setEditingSubject({
-                              _id: sub._id,
-                              subjectName: sub.subjectName,
-                              subjectCode: sub.subjectCode,
-                              courseId: sub.course?._id || "",
-                              semester: sub.semester,
-                              credits: sub.credits || 4,
-                              teacherId: sub.teacher?._id || "",
-                            });
-                            setActiveModal("editSubject");
-                          }}
-                          className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 py-1 rounded font-semibold transition"
-                        >
-                          Edit
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+            <div className="grid gap-2 md:grid-cols-4 mb-4">
+              <select value={subjectCourseFilter} onChange={e => { setSubjectCourseFilter(e.target.value); setSubjectDivisionOptions([]); }} className="rounded-lg border p-2 text-sm"><option value="ALL">All Courses</option>{courses.map(c => <option key={c._id} value={c.courseName}>{c.courseName}</option>)}</select>
+              <select value={subjectSemesterFilter} onChange={e => setSubjectSemesterFilter(e.target.value)} className="rounded-lg border p-2 text-sm"><option value="ALL">All Semesters</option>{Array.from({length: 12}, (_,i)=>i+1).map(n=><option key={n} value={n}>Semester {n}</option>)}</select>
+              <input value={subjectSearch} onChange={e => setSubjectSearch(e.target.value)} placeholder="Search subject, code, faculty..." className="rounded-lg border p-2 text-sm" />
+              <button onClick={() => setShowAllSubjects(v => !v)} className="rounded-lg border px-3 py-2 text-sm font-semibold">{showAllSubjects ? "Show Latest 5" : `View All (${filteredMasterSubjects.length})`}</button>
+            </div>
+            <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm">
+              <thead className="bg-gray-50 text-gray-500 uppercase text-xs"><tr><th className="p-3">Subject Name</th><th className="p-3">Code</th><th className="p-3">Course</th><th className="p-3">Semester</th><th className="p-3">Faculty In-Charge</th><th className="p-3">Allocated Divisions</th><th className="p-3 text-right">Action</th></tr></thead>
+              <tbody className="divide-y divide-gray-100">{visibleMasterSubjects.length === 0 ? <tr><td colSpan="7" className="p-4 text-center text-gray-400">No subjects match the selected filters.</td></tr> : visibleMasterSubjects.map(sub => {
+                const allocation = subjectDivisionsById[sub._id] ?? sub.divisions ?? [];
+                const subjectCourse = sub.course?.courseName || "General";
+                const available = subjectCourseFilter !== "ALL" && subjectSemesterFilter !== "ALL" && subjectCourse === subjectCourseFilter && Number(sub.semester) === Number(subjectSemesterFilter) ? subjectDivisionOptions : [];
+                return <tr key={sub._id}>
+                  <td className="p-3 font-semibold text-gray-800">{sub.subjectName}</td><td className="p-3 font-mono text-xs text-gray-600">{sub.subjectCode}</td><td className="p-3 text-gray-600">{subjectCourse}</td><td className="p-3 text-gray-600">Sem {sub.semester}</td>
+                  <td className="p-3">{sub.teacher ? <span className="text-xs bg-green-100 text-green-700 font-semibold px-2.5 py-1 rounded-full">{sub.teacher.name} ({sub.teacher.id_no})</span> : <span className="text-xs bg-red-100 text-red-600 font-semibold px-2.5 py-1 rounded-full">Unassigned</span>}</td>
+                  <td className="p-3"><div className="flex flex-wrap gap-2">{available.length ? available.map(d => <label key={d._id} className="flex items-center gap-1 rounded bg-slate-50 px-2 py-1 text-xs"><input type="checkbox" checked={allocation.includes(d.name)} onChange={e => setSubjectDivisionsById(prev => ({...prev, [sub._id]: e.target.checked ? [...new Set([...allocation, d.name])] : allocation.filter(x => x !== d.name)}))} />{d.name}</label>) : <span className="text-xs text-gray-500">{allocation.length ? allocation.join(", ") : "All divisions (default)"}</span>}</div></td>
+                  <td className="p-3 text-right"><div className="flex justify-end gap-2"><button onClick={() => { setEditingSubject({_id:sub._id,subjectName:sub.subjectName,subjectCode:sub.subjectCode,courseId:sub.course?._id||"",semester:sub.semester,credits:sub.credits||4,teacherId:sub.teacher?._id||""}); setActiveModal("editSubject"); }} className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 py-1 rounded font-semibold">Edit</button>{available.length > 0 && <button onClick={() => saveSubjectDivisions(sub)} className="text-xs bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded font-semibold">Save Divisions</button>}</div></td>
+                </tr>;
+              })}</tbody>
+            </table></div>
+            {filteredMasterSubjects.length > 5 && <div className="mt-3 text-xs text-gray-500">Showing {visibleMasterSubjects.length} of {filteredMasterSubjects.length} subjects.</div>}
           </div>
         </div>
       </div>
@@ -1701,6 +1712,8 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {activeModal === "divisionManager" && <DivisionManagementPanel token={token} onClose={() => setActiveModal(null)} />}
 
       {activeModal === "adminTimetableManager" && (
         <AdminTimetablePanel onClose={() => setActiveModal(null)} />
@@ -2263,16 +2276,12 @@ export default function AdminDashboard() {
             </div>
             <form onSubmit={handleAddStudent} className="space-y-3">
               <div>
-                <label className="text-xs font-semibold text-gray-600 block mb-1">Full Name</label>
-                <input
-                  required
-                  minLength="2"
-                  maxLength="100"
-                  placeholder="Student Full Name"
-                  value={studentForm.name}
-                  onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
-                  className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-orange-500"
-                />
+                <label className="text-xs font-semibold text-gray-600 block mb-1">Surname</label>
+                <input required minLength="1" maxLength="50" placeholder="SURNAME" value={studentForm.surname || ""} onChange={(e) => setStudentForm({ ...studentForm, surname: e.target.value.toUpperCase() })} className="w-full border rounded-lg p-2 text-sm uppercase outline-none focus:ring-2 focus:ring-orange-500" />
+                <label className="text-xs font-semibold text-gray-600 block mb-1 mt-3">First Name</label>
+                <input required minLength="1" maxLength="50" placeholder="FIRST NAME" value={studentForm.firstName || ""} onChange={(e) => setStudentForm({ ...studentForm, firstName: e.target.value.toUpperCase() })} className="w-full border rounded-lg p-2 text-sm uppercase outline-none focus:ring-2 focus:ring-orange-500" />
+                <label className="text-xs font-semibold text-gray-600 block mb-1 mt-3">Second Name (Optional)</label>
+                <input maxLength="50" placeholder="SECOND NAME" value={studentForm.secondName || ""} onChange={(e) => setStudentForm({ ...studentForm, secondName: e.target.value.toUpperCase() })} className="w-full border rounded-lg p-2 text-sm uppercase outline-none focus:ring-2 focus:ring-orange-500" />
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -2296,9 +2305,9 @@ export default function AdminDashboard() {
                   
                   type="password"
                   required
-                  minLength="6"
+                  minLength="8"
                   maxLength="100"
-                  placeholder="Password (min. 6 characters)"
+                  placeholder="8+ chars, uppercase, lowercase, special character"
                   value={studentForm.password}
                   onChange={(e) => setStudentForm({ ...studentForm, password: e.target.value })}
                   className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-orange-500"

@@ -125,7 +125,11 @@ export default function TeacherDashboard() {
       const stuSem = Number(stu.semester);
       const matchesCourse = stuCourse === courseName || stuCourse === courseCode;
       const matchesSem = targetSem ? stuSem === targetSem : true;
-      return matchesCourse && matchesSem;
+      const allocatedDivisions = Array.isArray(targetSub.divisions) ? targetSub.divisions : [];
+      const hasDivisionAllocation = allocatedDivisions.length > 0;
+      const matchesDivision = !hasDivisionAllocation || allocatedDivisions.includes(String(stu.division || "").toUpperCase());
+      const assignedToDivision = Boolean(String(stu.division || "").trim());
+      return matchesCourse && matchesSem && matchesDivision && assignedToDivision;
     });
   };
 

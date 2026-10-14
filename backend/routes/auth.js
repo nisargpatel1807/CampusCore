@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/user");
 const authMiddleware = require("../middleware/authMiddleware");
+const { validatePassword: validateStrongPassword } = require("../utils/passwordPolicy");
 
 const JWT_SECRET = process.env.JWT_SECRET || "campuscore_secret_key_2026";
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -52,7 +53,8 @@ router.post("/forgot-password", async (req, res) => {
     const confirmPassword = String(req.body.confirmPassword ?? "");
     if (!id_no || !email || !newPassword || !confirmPassword) return res.status(400).json({ message: "ID, email and both password fields are required." });
     if (!emailRegex.test(email)) return res.status(400).json({ message: "Please provide a valid email address." });
-    if (newPassword.length < 6 || newPassword.length > 100 || !newPassword.trim()) return res.status(400).json({ message: "New password must be 6–100 characters." });
+    const passwordError = validateStrongPassword(newPassword);
+    if (passwordError) return res.status(400).json({ message: passwordError });
     if (newPassword !== confirmPassword) return res.status(400).json({ message: "New password and confirm password do not match." });
     const user = await User.findOne({ id_no, email });
     if (!user) return res.status(404).json({ message: "No user found matching this ID and Email." });
@@ -93,7 +95,8 @@ router.put("/update-profile", authMiddleware, async (req, res) => {
       const current = String(currentPassword ?? "").trim();
       if (!current) return res.status(400).json({ message: "Current password is required to change your password." });
       if (nextPassword !== nextPassword.trim()) return res.status(400).json({ message: "New password cannot start or end with spaces." });
-      if (nextPassword.length < 6 || nextPassword.length > 100) return res.status(400).json({ message: "New password must be 6–100 characters." });
+      const passwordError = validateStrongPassword(nextPassword);
+      if (passwordError) return res.status(400).json({ message: passwordError });
       if (!(await bcrypt.compare(current, user.password))) return res.status(400).json({ message: "Current password does not match." });
       if (await bcrypt.compare(nextPassword, user.password)) return res.status(400).json({ message: "New password must be different from your current password." });
       user.password = await bcrypt.hash(nextPassword, 10);
