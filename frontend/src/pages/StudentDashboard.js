@@ -984,7 +984,25 @@ if (res.data.studentInfo) {
   .cc-student-sidebar.cc-sidebar-collapsed { width: 76px; flex-basis: 76px; }
   .cc-student-shell .cc-topbar { padding-left: 1rem !important; padding-right: 1rem !important; }
 }
-`}</style>
+
+/* Keep only the Profile Settings icon visible when the student sidebar is collapsed. */
+.cc-student-sidebar.cc-sidebar-collapsed .cc-profile-settings-button {
+  justify-content: center !important;
+  gap: 0 !important;
+  padding-left: .5rem !important;
+  padding-right: .5rem !important;
+}
+.cc-student-sidebar.cc-sidebar-collapsed .cc-profile-settings-button > span:not(:first-child) {
+  display: none !important;
+}
+.cc-student-sidebar.cc-sidebar-collapsed .cc-profile-settings-button > span:first-child {
+  margin: 0 !important;
+  flex: 0 0 2rem;
+}
+
+`}
+
+</style>
     <div className={`cc-student-shell flex h-screen font-sans ${isSidebarCollapsed ? "cc-sidebar-is-collapsed" : ""}`}>
       {/* SIDEBAR */}
       <aside className={`cc-sidebar cc-student-sidebar shrink-0 text-white shadow-2xl flex h-screen flex-col overflow-visible ${isSidebarCollapsed ? "cc-sidebar-collapsed" : "cc-sidebar-expanded"}`}>
@@ -1055,11 +1073,40 @@ if (res.data.studentInfo) {
         </div>
 
         <div className="border-t border-white/10 bg-black/10 px-4 pb-4 pt-4">
-          <button type="button" onClick={() => { setIsEditingProfile(false); setShowPasswordFields(false); setActiveModal("profile"); }} className={`mb-2 group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left text-sm font-semibold transition-all duration-200 ${activeModal === "profile" ? "bg-white text-blue-900 shadow-lg" : "text-white/95 hover:bg-white/10 hover:text-white"}`}>
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10">⚙️</span><span>Profile Settings</span>
-          </button>
-          <button type="button" onClick={() => { localStorage.clear(); navigate("/login/student"); }} className="cc-signout-button flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/10 py-3 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:bg-red-500/90 hover:shadow-xl"><span>↪</span><span>Sign Out</span></button>
-        </div>
+  <button
+    type="button"
+    onClick={() => {
+      setIsEditingProfile(false);
+      setShowPasswordFields(false);
+      setActiveModal("profile");
+    }}
+    className={`cc-profile-settings-button mb-2 group flex w-full min-w-0 items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold transition-all duration-200 ${
+      activeModal === "profile"
+        ? "bg-white text-blue-900 shadow-lg"
+        : "text-white/95 hover:bg-white/10 hover:text-white"
+    }`}
+  >
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10">
+      ⚙️
+    </span>
+
+    <span className="min-w-0 flex-1 whitespace-nowrap text-[13px]">
+      Profile Settings
+    </span>
+  </button>
+
+  <button
+    type="button"
+    onClick={() => {
+      localStorage.clear();
+      navigate("/login/student");
+    }}
+    className="cc-signout-button flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/10 py-3 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:bg-red-500/90 hover:shadow-xl"
+  >
+    <span>↪</span>
+    <span>Sign Out</span>
+  </button>
+</div>
       </aside>
       {/* MAIN CONTAINER */}
       <div className="cc-main-container flex-1 flex flex-col overflow-hidden">
