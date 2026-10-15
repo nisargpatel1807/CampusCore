@@ -4,6 +4,7 @@ import NotificationBell from "../components/NotificationBell";
 import HelpdeskAdminPanel from "../components/HelpdeskAdminPanel";
 import AdminTimetablePanel from "../components/AdminTimetablePanel";
 import DivisionManagementPanel from "../components/DivisionManagementPanel";
+import DepartmentManagementPanel from "../components/DepartmentManagementPanel";
 import AdminAttendanceReportPanel from "../components/AdminAttendanceReportPanel";
 import AdminResultPanel from "../components/AdminResultPanel";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -30,6 +31,7 @@ export default function AdminDashboard() {
   // Metrics & Global Sorted Lists
   const [stats, setStats] = useState({ students: 0, teachers: 0, courses: 0, subjects: 0 });
   const [courses, setCourses] = useState([]);
+const [departments, setDepartments] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [students, setStudents] = useState([]);
@@ -57,7 +59,7 @@ export default function AdminDashboard() {
   const [editingStudent, setEditingStudent] = useState(null);
 
   // Form States
-  const [courseForm, setCourseForm] = useState({ courseName: "", courseCode: "", durationYears: 3 });
+  const [courseForm, setCourseForm] = useState({ courseName: "", courseCode: "", durationYears: 3, departmentId: "" });
   const [subjectForm, setSubjectForm] = useState({
     subjectName: "",
     subjectCode: "",
@@ -66,7 +68,10 @@ export default function AdminDashboard() {
     credits: 4,
     teacherId: "",
   });
-  const [assignForm, setAssignForm] = useState({ subjectId: "", teacherId: "" });
+  const [subjectSemesterCustom, setSubjectSemesterCustom] = useState(false);
+  const [subjectCreditsCustom, setSubjectCreditsCustom] = useState(false);
+  const [assignForm, setAssignForm] = useState({ courseName: "", semester: "", subjectId: "", teacherId: "", divisions: [] });
+  const [allocationDivisions, setAllocationDivisions] = useState([]);
   const [studentForm, setStudentForm] = useState({
     name: "",
     surname: "",
@@ -145,6 +150,33 @@ export default function AdminDashboard() {
     );
   };
 
+  const generateSubjectCode = (courseId, subjectList = subjects) => {
+    const course = courses.find((item) => item._id === courseId);
+    if (!course) return "";
+    const prefix = String(course.courseCode || course.courseName || "SUB")
+      .toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10) || "SUB";
+    const usedNumbers = (subjectList || [])
+      .filter((item) => String(item.course?._id || item.course || item.courseId || "") === String(courseId))
+      .map((item) => {
+        const code = String(item.subjectCode || "").toUpperCase();
+        const match = code.match(new RegExp(`^${prefix}(\\d+)$`));
+        return match ? Number(match[1]) : 0;
+      });
+    let next = Math.max(0, ...usedNumbers) + 1;
+    let candidate = `${prefix}${String(next).padStart(3, "0")}`;
+    const allCodes = new Set((subjectList || []).map((item) => String(item.subjectCode || "").toUpperCase()));
+    while (allCodes.has(candidate)) {
+      next += 1;
+      candidate = `${prefix}${String(next).padStart(3, "0")}`;
+    }
+    return candidate;
+  };
+
+  useEffect(() => {
+    if (activeModal !== "addSubject" || !subjectForm.courseId || subjectForm.subjectCode) return;
+    setSubjectForm((prev) => ({ ...prev, subjectCode: generateSubjectCode(prev.courseId) }));
+  }, [activeModal, subjectForm.courseId, subjectForm.subjectCode, courses, subjects]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const loadDashboardData = async () => {
     try {
       const [dashRes, metaRes] = await Promise.all([
@@ -157,6 +189,13 @@ export default function AdminDashboard() {
         (a.courseCode || "").localeCompare(b.courseCode || "", undefined, { numeric: true })
       );
       setCourses(sortedCourses);
+      try {
+        const departmentRes = await axios.get("http://localhost:5000/api/admin/departments", authConfig);
+        setDepartments(Array.isArray(departmentRes.data) ? departmentRes.data : []);
+      } catch (departmentError) {
+        console.error("Department Load Error:", departmentError);
+        setDepartments([]);
+      }
 
       setTeachers(sortById(metaRes.data.teachers || []));
 
@@ -184,6 +223,17 @@ export default function AdminDashboard() {
     };
     loadSubjectDivisions();
   }, [subjectCourseFilter, subjectSemesterFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const loadAllocationDivisions = async () => {
+      if (!assignForm.courseName || !assignForm.semester) { setAllocationDivisions([]); return; }
+      try {
+        const res = await axios.get("http://localhost:5000/api/divisions", { ...authConfig, params: { course: assignForm.courseName, semester: assignForm.semester } });
+        setAllocationDivisions(res.data || []);
+      } catch (e) { setAllocationDivisions([]); }
+    };
+    loadAllocationDivisions();
+  }, [assignForm.courseName, assignForm.semester]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredMasterSubjects = subjects.filter(sub => {
     const courseName = sub.course?.courseName || "General";
@@ -683,12 +733,13 @@ export default function AdminDashboard() {
     if (courseName.length < 3 || courseName.length > 100) return alert("Course name must be 3–100 characters.");
     if (!/^[A-Za-z]/.test(courseName)) return alert("Course name must start with a letter.");
     if (!/^[A-Z0-9-]{2,20}$/.test(courseCode)) return alert("Course code must be 2–20 characters and use only letters, numbers, or hyphens.");
+    if (!courseForm.departmentId) return alert("Please select a department.");
 
     try {
       await axios.post("http://localhost:5000/api/admin/course",
-        { ...courseForm, courseName, courseCode }, authConfig);
+        { ...courseForm, courseName, courseCode, departmentId: courseForm.departmentId }, authConfig);
       alert("Course created successfully! 🏛️");
-      setCourseForm({ courseName: "", courseCode: "", durationYears: 3 });
+      setCourseForm({ courseName: "", courseCode: "", durationYears: 3, departmentId: "" });
       setActiveModal(null);
       loadDashboardData();
     } catch (err) {
@@ -698,10 +749,12 @@ export default function AdminDashboard() {
 
   const handleEditCourse = async (e) => {
     e.preventDefault();
+    if (!editingCourse) return alert("Please select a course to edit.");
     const courseName = editingCourse.courseName.trim();
     const courseCode = editingCourse.courseCode.trim().toUpperCase();
     if (courseName.length < 3 || courseName.length > 100) return alert("Course name must be 3–100 characters.");
     if (!/^[A-Z0-9-]{2,20}$/.test(courseCode)) return alert("Course code must be 2–20 characters and use only letters, numbers, or hyphens.");
+    if (!editingCourse.departmentId) return alert("Please select a department.");
     if (!Number.isInteger(Number(editingCourse.durationYears)) || Number(editingCourse.durationYears) < 1 || Number(editingCourse.durationYears) > 5) {
       return alert("Course duration must be between 1 and 5 years.");
     }
@@ -724,7 +777,8 @@ export default function AdminDashboard() {
     if (subjectName.length < 2 || subjectName.length > 100) return alert("Subject name must be 2–100 characters.");
     if (!/^[A-Z0-9-]{2,20}$/.test(subjectCode)) return alert("Subject code must be 2–20 characters and use only letters, numbers, or hyphens.");
     if (!subjectForm.courseId) return alert("Please choose a course.");
-    if (!Number.isInteger(Number(subjectForm.semester)) || Number(subjectForm.semester) < 1) return alert("Please choose a valid semester.");
+    if (!Number.isInteger(Number(subjectForm.semester)) || Number(subjectForm.semester) < 1 || Number(subjectForm.semester) > 20) return alert("Semester must be between 1 and 20.");
+    if (!Number.isInteger(Number(subjectForm.credits)) || Number(subjectForm.credits) < 1 || Number(subjectForm.credits) > 20) return alert("Credits must be between 1 and 20.");
 
     try {
       await axios.post("http://localhost:5000/api/admin/subject",
@@ -738,6 +792,8 @@ export default function AdminDashboard() {
         credits: 4,
         teacherId: "",
       });
+      setSubjectSemesterCustom(false);
+      setSubjectCreditsCustom(false);
       setActiveModal(null);
       loadDashboardData();
     } catch (err) {
@@ -748,12 +804,19 @@ export default function AdminDashboard() {
   const handleEditSubject = async (e) => {
     e.preventDefault();
     const subjectName = editingSubject.subjectName.trim();
-    const subjectCode = editingSubject.subjectCode.trim().toUpperCase();
+    const subjectCode = String(editingSubject.subjectCode || "").trim().toUpperCase();
+    const semester = Number(editingSubject.semester);
+    const credits = Number(editingSubject.credits);
+    const selectedCourse = courses.find((course) => String(course._id) === String(editingSubject.courseId));
+    const maxSemester = Number(selectedCourse?.durationYears || 3) * 2;
     if (subjectName.length < 2 || subjectName.length > 100) return alert("Subject name must be 2–100 characters.");
     if (!/^[A-Z0-9-]{2,20}$/.test(subjectCode)) return alert("Subject code must be 2–20 characters and use only letters, numbers, or hyphens.");
+    if (!editingSubject.courseId || !selectedCourse) return alert("Please choose a course.");
+    if (!Number.isInteger(semester) || semester < 1 || semester > maxSemester) return alert(`Semester must be between 1 and ${maxSemester} for the selected course.`);
+    if (!Number.isInteger(credits) || credits < 1 || credits > 20) return alert("Credits must be between 1 and 20.");
     try {
       await axios.put(`http://localhost:5000/api/admin/subject/${editingSubject._id}`,
-        { ...editingSubject, subjectName, subjectCode }, authConfig);
+        { ...editingSubject, subjectName, subjectCode, semester, credits }, authConfig);
       alert("Subject updated successfully!");
       setActiveModal(null);
       loadDashboardData();
@@ -765,13 +828,28 @@ export default function AdminDashboard() {
   const handleAssignTeacher = async (e) => {
     e.preventDefault();
     try {
-      await axios.put("http://localhost:5000/api/admin/assign-subject", assignForm, authConfig);
-      alert("Faculty assigned successfully! 👨‍🏫");
-      setAssignForm({ subjectId: "", teacherId: "" });
+      await axios.put("http://localhost:5000/api/admin/assign-subject", { subjectId: assignForm.subjectId, teacherId: assignForm.teacherId }, authConfig);
+      await axios.put(`http://localhost:5000/api/divisions/subjects/${assignForm.subjectId}/divisions`, { divisions: assignForm.divisions }, authConfig);
+      alert("Teacher and division allocation saved successfully.");
+      setAssignForm({ courseName: "", semester: "", subjectId: "", teacherId: "", divisions: [] });
+      setAllocationDivisions([]);
       setActiveModal(null);
       loadDashboardData();
     } catch (err) {
-      alert(err.response?.data?.message || "Error assigning teacher");
+      alert(err.response?.data?.message || "Could not save allocation. Please check course, semester, subject and divisions.");
+    }
+  };
+
+  const handleDeleteSubject = async (sub) => {
+    const confirmed = window.confirm(`Delete subject "${sub.subjectName}" (${sub.subjectCode})? This action cannot be undone.`);
+    if (!confirmed) return;
+    try {
+      await axios.delete(`http://localhost:5000/api/admin/subject/${sub._id}`, authConfig);
+      setSubjectDivisionsById(prev => { const next = { ...prev }; delete next[sub._id]; return next; });
+      await loadDashboardData();
+      alert("Subject deleted successfully.");
+    } catch (err) {
+      alert(err.response?.data?.message || "Could not delete subject.");
     }
   };
 
@@ -783,13 +861,17 @@ export default function AdminDashboard() {
     if (name.length < 2 || name.length > 100) return alert("Faculty name must be 2–100 characters.");
     if (!/^[A-Za-z0-9_-]{3,30}$/.test(idNo)) return alert("Faculty ID must be 3–30 characters and use only letters, numbers, hyphens, or underscores.");
     if (password.length < 8 || password.length > 100 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[^A-Za-z0-9]/.test(password)) return alert("Use 8–100 characters with uppercase, lowercase and a special character.");
-    if (!teacherForm.department.trim()) return alert("Please select a course / department.");
+    if (!teacherForm.department.trim()) return alert("Please select a department.");
 
     const body = new FormData();
     body.append("name", name);
     body.append("id_no", idNo);
     body.append("password", password);
-    body.append("department", teacherForm.department.trim());
+    body.append("departmentId", teacherForm.department.trim());
+body.append(
+  "departmentName",
+  departments.find((d) => d._id === teacherForm.department)?.departmentName || ""
+);
     if (teacherPhoto) body.append("profilePhoto", teacherPhoto);
 
     try {
@@ -815,10 +897,12 @@ export default function AdminDashboard() {
     const idNo = editingTeacher.id_no.trim();
     if (name.length < 2 || name.length > 100) return alert("Faculty name must be 2–100 characters.");
     if (!/^[A-Za-z0-9_-]{3,30}$/.test(idNo)) return alert("Faculty ID must be 3–30 characters and use only letters, numbers, hyphens, or underscores.");
-    if (!editingTeacher.department?.trim()) return alert("Please select a course / department.");
+    if (!(editingTeacher.departmentId || editingTeacher.department || "").trim()) return alert("Please select a department.");
+    const departmentId = editingTeacher.departmentId || editingTeacher.department;
+    const departmentName = departments.find((department) => department._id === departmentId)?.departmentName || "";
     try {
       await axios.put(`http://localhost:5000/api/admin/teacher/${editingTeacher._id}`,
-        { ...editingTeacher, name, id_no: idNo, department: editingTeacher.department.trim() }, authConfig);
+        { ...editingTeacher, name, id_no: idNo, departmentId, departmentName }, authConfig);
       alert("Faculty profile updated!");
       setActiveModal("viewTeachers");
       loadDashboardData();
@@ -1122,6 +1206,11 @@ export default function AdminDashboard() {
                 <span className="cc-nav-label">Add Course</span>
               </button>
 
+              <button type="button" onClick={() => setActiveModal("departmentManagement")} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "departmentManagement" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+                <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">🏢</span>
+                <span className="cc-nav-label">Department Management</span>
+              </button>
+
               <button type="button" onClick={() => setActiveModal("addSubject")} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "addSubject" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
                 <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">📝</span>
                 <span className="cc-nav-label">Add Subject</span>
@@ -1155,7 +1244,7 @@ export default function AdminDashboard() {
                 <span className="cc-nav-label">Manage Calendar</span>
               </button>
 
-              <button type="button" onClick={() => setActiveModal("divisionManager")} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "divisionManager" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}><span>Division & Allocation</span></button>
+              <button type="button" onClick={() => setActiveModal("divisionManager")} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "divisionManager" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}><span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm">🏫</span><span className="cc-nav-label">Division Management</span></button>
               <button type="button" onClick={() => setActiveModal("adminTimetableManager")} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "adminTimetableManager" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
                 <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm group-hover:bg-white/15">🗓️</span>
                 <span className="cc-nav-label">Manage Timetable</span>
@@ -1299,14 +1388,13 @@ export default function AdminDashboard() {
           {/* MASTER SUBJECT DIRECTORY TABLE */}
           <div className="cc-admin-card bg-white/95 p-5 rounded-2xl shadow-sm border border-slate-200/80 transition-shadow duration-200 hover:shadow-md">
             <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
-              <div><h3 className="font-bold text-gray-800">Master Subject Directory & Teacher Allocations</h3><p className="text-xs text-gray-500 mt-1">Filter subjects and manage division allocation inline.</p></div>
-              <button onClick={() => setActiveModal("assignTeacher")} className="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg font-semibold transition">+ Assign Teacher to Subject</button>
+              <div><h3 className="font-bold text-gray-800">Master Subject Directory & Teacher Allocations</h3><p className="text-xs text-gray-500 mt-1">Filter subjects, assign a teacher, and choose divisions in one simple flow.</p></div>
+              <button onClick={() => setActiveModal("assignTeacher")} className="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg font-semibold transition">+ Allocate Subject</button>
             </div>
             <div className="grid gap-2 md:grid-cols-4 mb-4">
               <select value={subjectCourseFilter} onChange={e => { setSubjectCourseFilter(e.target.value); setSubjectDivisionOptions([]); }} className="rounded-lg border p-2 text-sm"><option value="ALL">All Courses</option>{courses.map(c => <option key={c._id} value={c.courseName}>{c.courseName}</option>)}</select>
               <select value={subjectSemesterFilter} onChange={e => setSubjectSemesterFilter(e.target.value)} className="rounded-lg border p-2 text-sm"><option value="ALL">All Semesters</option>{Array.from({length: 12}, (_,i)=>i+1).map(n=><option key={n} value={n}>Semester {n}</option>)}</select>
               <input value={subjectSearch} onChange={e => setSubjectSearch(e.target.value)} placeholder="Search subject, code, faculty..." className="rounded-lg border p-2 text-sm" />
-              <button onClick={() => setShowAllSubjects(v => !v)} className="rounded-lg border px-3 py-2 text-sm font-semibold">{showAllSubjects ? "Show Latest 5" : `View All (${filteredMasterSubjects.length})`}</button>
             </div>
             <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm">
               <thead className="bg-gray-50 text-gray-500 uppercase text-xs"><tr><th className="p-3">Subject Name</th><th className="p-3">Code</th><th className="p-3">Course</th><th className="p-3">Semester</th><th className="p-3">Faculty In-Charge</th><th className="p-3">Allocated Divisions</th><th className="p-3 text-right">Action</th></tr></thead>
@@ -1317,12 +1405,12 @@ export default function AdminDashboard() {
                 return <tr key={sub._id}>
                   <td className="p-3 font-semibold text-gray-800">{sub.subjectName}</td><td className="p-3 font-mono text-xs text-gray-600">{sub.subjectCode}</td><td className="p-3 text-gray-600">{subjectCourse}</td><td className="p-3 text-gray-600">Sem {sub.semester}</td>
                   <td className="p-3">{sub.teacher ? <span className="text-xs bg-green-100 text-green-700 font-semibold px-2.5 py-1 rounded-full">{sub.teacher.name} ({sub.teacher.id_no})</span> : <span className="text-xs bg-red-100 text-red-600 font-semibold px-2.5 py-1 rounded-full">Unassigned</span>}</td>
-                  <td className="p-3"><div className="flex flex-wrap gap-2">{available.length ? available.map(d => <label key={d._id} className="flex items-center gap-1 rounded bg-slate-50 px-2 py-1 text-xs"><input type="checkbox" checked={allocation.includes(d.name)} onChange={e => setSubjectDivisionsById(prev => ({...prev, [sub._id]: e.target.checked ? [...new Set([...allocation, d.name])] : allocation.filter(x => x !== d.name)}))} />{d.name}</label>) : <span className="text-xs text-gray-500">{allocation.length ? allocation.join(", ") : "All divisions (default)"}</span>}</div></td>
-                  <td className="p-3 text-right"><div className="flex justify-end gap-2"><button onClick={() => { setEditingSubject({_id:sub._id,subjectName:sub.subjectName,subjectCode:sub.subjectCode,courseId:sub.course?._id||"",semester:sub.semester,credits:sub.credits||4,teacherId:sub.teacher?._id||""}); setActiveModal("editSubject"); }} className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 py-1 rounded font-semibold">Edit</button>{available.length > 0 && <button onClick={() => saveSubjectDivisions(sub)} className="text-xs bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded font-semibold">Save Divisions</button>}</div></td>
+                  <td className="p-3"><div className="flex flex-wrap gap-1">{allocation.length ? allocation.map(name => <span key={name} className="rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700">{name}</span>) : <span className="text-xs text-gray-500">All divisions</span>}</div></td>
+                  <td className="p-3 text-right"><div className="flex justify-end gap-2"><button onClick={() => { setEditingSubject({_id:sub._id,subjectName:sub.subjectName,subjectCode:sub.subjectCode,courseId:sub.course?._id||"",semester:Number(sub.semester||1),credits:Number(sub.credits||4),teacherId:sub.teacher?._id||""}); setActiveModal("editSubject"); }} className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 py-1 rounded font-semibold">Edit</button><button onClick={() => { setAssignForm({ courseName: sub.course?.courseName || "", semester: String(sub.semester || ""), subjectId: sub._id, teacherId: sub.teacher?._id || "", divisions: sub.divisions || [] }); setActiveModal("assignTeacher"); }} className="text-xs bg-green-50 hover:bg-green-100 text-green-700 px-3 py-1 rounded font-semibold">Allocation</button><button onClick={() => handleDeleteSubject(sub)} className="text-xs bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1 rounded font-semibold">Delete</button></div></td>
                 </tr>;
               })}</tbody>
             </table></div>
-            {filteredMasterSubjects.length > 5 && <div className="mt-3 text-xs text-gray-500">Showing {visibleMasterSubjects.length} of {filteredMasterSubjects.length} subjects.</div>}
+            {filteredMasterSubjects.length > 5 && <div className="mt-4 flex justify-center"><button onClick={() => setShowAllSubjects(v => !v)} className="w-full max-w-sm rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold hover:bg-slate-50">{showAllSubjects ? "Show Less" : "View All"}</button></div>}
           </div>
         </div>
       </div>
@@ -1772,7 +1860,7 @@ export default function AdminDashboard() {
                       <td className="p-3 text-right space-x-2">
                         <button
                           onClick={() => {
-                            setEditingTeacher({ _id: t._id, name: t.name, id_no: t.id_no, department: t.department });
+                            setEditingTeacher({ _id: t._id, name: t.name, id_no: t.id_no, department: t.departmentId || "", departmentId: t.departmentId || "" });
                             setActiveModal("editTeacher");
                           }}
                           className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-2.5 py-1 rounded font-semibold transition"
@@ -1827,14 +1915,12 @@ export default function AdminDashboard() {
                 <select
                   required
                   value={editingTeacher.department}
-                  onChange={(e) => setEditingTeacher({ ...editingTeacher, department: e.target.value })}
+                  onChange={(e) => setEditingTeacher({ ...editingTeacher, department: e.target.value, departmentId: e.target.value })}
                   className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-green-500 bg-white"
                 >
-                  <option value="">-- Select Course / Program --</option>
-                  {courses.map((c) => (
-                    <option key={c._id} value={c.courseName}>
-                      {c.courseName} ({c.courseCode})
-                    </option>
+                  <option value="">-- Select Department --</option>
+                  {departments.filter((department) => department.status !== false).map((department) => (
+                    <option key={department._id} value={department._id}>{department.departmentName} ({department.departmentCode})</option>
                   ))}
                 </select>
               </div>
@@ -1873,7 +1959,7 @@ export default function AdminDashboard() {
                       <td className="p-3 text-right">
                         <button
                           onClick={() => {
-                            setEditingCourse({ _id: c._id, courseName: c.courseName, courseCode: c.courseCode, durationYears: c.durationYears });
+                            setEditingCourse({ _id: c._id, courseName: c.courseName, courseCode: c.courseCode, durationYears: c.durationYears, departmentId: c.departmentId || c.department?._id || (typeof c.department === "string" ? c.department : "") });
                             setActiveModal("editCourse");
                           }}
                           className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 py-1 rounded font-semibold transition"
@@ -1928,6 +2014,24 @@ export default function AdminDashboard() {
                   className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-purple-500"
                 />
               </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600 block mb-1">Department</label>
+                <select
+                  required
+                  value={editingCourse?.departmentId || editingCourse?.department?._id || (typeof editingCourse?.department === "string" ? editingCourse.department : "") || ""}
+                  onChange={(e) => setEditingCourse((prev) => ({ ...prev, departmentId: e.target.value }))}
+                  className="w-full border rounded-lg p-2 text-sm bg-white"
+                >
+                  <option value="">-- Select Department --</option>
+                  {departments
+                    .filter((department) => department.status !== false)
+                    .map((department) => (
+                      <option key={department._id} value={department._id}>
+                        {department.departmentName} ({department.departmentCode})
+                      </option>
+                    ))}
+                </select>
+              </div>
               <button type="submit" className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-semibold transition">
                 Update Course
               </button>
@@ -1946,6 +2050,32 @@ export default function AdminDashboard() {
             </div>
             <form onSubmit={handleEditSubject} className="space-y-3">
               <div>
+                <label className="text-xs font-semibold text-gray-600 block mb-1">Select Degree / Course</label>
+                <select
+                  required
+                  value={editingSubject.courseId || ""}
+                  onChange={(e) => {
+                    const courseId = e.target.value;
+                    const selectedCourse = courses.find((course) => String(course._id) === String(courseId));
+                    const maxSemester = Number(selectedCourse?.durationYears || 3) * 2;
+                    setEditingSubject((prev) => ({
+                      ...prev,
+                      courseId,
+                      semester: Number(prev.semester) > maxSemester ? 1 : Number(prev.semester || 1),
+                      subjectCode: generateSubjectCode(courseId),
+                    }));
+                  }}
+                  className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                >
+                  <option value="">-- Choose Course --</option>
+                  {courses.map((c) => (
+                    <option key={c._id} value={c._id}>
+                      {c.courseName} ({c.courseCode}) - {c.durationYears || 3} Years
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label className="text-xs font-semibold text-gray-600 block mb-1">Subject Name</label>
                 <input
                   required
@@ -1963,40 +2093,29 @@ export default function AdminDashboard() {
                   className="w-full border rounded-lg p-2 text-sm uppercase outline-none focus:ring-2 focus:ring-purple-500"
                 />
               </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-600 block mb-1">Belongs to Degree / Course</label>
-                <select
-                  required
-                  value={editingSubject.courseId}
-                  onChange={(e) => setEditingSubject({ ...editingSubject, courseId: e.target.value })}
-                  className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-purple-500"
-                >
-                  <option value="">-- Choose Course --</option>
-                  {courses.map((c) => (
-                    <option key={c._id} value={c._id}>{c.courseName} ({c.courseCode})</option>
-                  ))}
-                </select>
-              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-gray-600 block mb-1">Semester</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="8"
-                    value={editingSubject.semester}
-                    onChange={(e) => setEditingSubject({ ...editingSubject, semester: Number(e.target.value) })}
-                    className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-purple-500"
-                  />
+                  <select
+                    required
+                    value={String(editingSubject.semester ?? "")}
+                    onChange={(e) => setEditingSubject({ ...editingSubject, semester: e.target.value })}
+                    className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                  >
+                    <option value="">Choose semester</option>
+                    {Array.from({ length: Number(courses.find((course) => String(course._id) === String(editingSubject.courseId))?.durationYears || 3) * 2 }, (_, index) => index + 1).map((semester) => (
+                      <option key={semester} value={String(semester)}>Semester {semester}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-600 block mb-1">Credits</label>
                   <input
                     type="number"
                     min="1"
-                    max="10"
-                    value={editingSubject.credits}
-                    onChange={(e) => setEditingSubject({ ...editingSubject, credits: Number(e.target.value) })}
+                    max="20"
+                    value={editingSubject.credits ?? ""}
+                    onChange={(e) => setEditingSubject({ ...editingSubject, credits: e.target.value })}
                     className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-purple-500"
                   />
                 </div>
@@ -2023,6 +2142,10 @@ export default function AdminDashboard() {
       )}
 
       {/* 10. ADD COURSE MODAL */}
+      {activeModal === "departmentManagement" && (
+        <DepartmentManagementPanel token={token} onClose={() => setActiveModal(null)} onChanged={loadDashboardData} />
+      )}
+
       {activeModal === "addCourse" && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
@@ -2057,6 +2180,24 @@ export default function AdminDashboard() {
                 />
               </div>
               <div>
+  <label className="text-xs font-semibold text-gray-600 block mb-1">Department</label>
+  <select
+    required
+    value={courseForm.departmentId}
+    onChange={(e) => setCourseForm({ ...courseForm, departmentId: e.target.value })}
+    className="w-full border rounded-lg p-2 text-sm bg-white"
+  >
+    <option value="">-- Select Department --</option>
+    {departments
+      .filter((department) => department.status !== false)
+      .map((department) => (
+        <option key={department._id} value={department._id}>
+          {department.departmentName} ({department.departmentCode})
+        </option>
+      ))}
+  </select>
+</div>
+              <div>
                 <label className="text-xs font-semibold text-gray-600 block mb-1">Duration (in Years)</label>
                 <select
                   required
@@ -2089,6 +2230,23 @@ export default function AdminDashboard() {
             </div>
             <form onSubmit={handleAddSubject} className="space-y-3">
               <div>
+                <label className="text-xs font-semibold text-gray-600 block mb-1">Select Degree / Course</label>
+                <select
+                  required
+                  value={subjectForm.courseId}
+                  onChange={(e) => {
+                    const courseId = e.target.value;
+                    setSubjectForm((prev) => ({ ...prev, courseId, semester: 1, credits: 4, teacherId: "", subjectCode: generateSubjectCode(courseId) }));
+                    setSubjectSemesterCustom(false);
+                    setSubjectCreditsCustom(false);
+                  }}
+                  className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                >
+                  <option value="">-- Choose Course --</option>
+                  {courses.map((c) => <option key={c._id} value={c._id}>{c.courseCode || c.courseName} — {c.courseName} ({c.durationYears || 3} Years)</option>)}
+                </select>
+              </div>
+              <div>
                 <label className="text-xs font-semibold text-gray-600 block mb-1">Subject Name</label>
                 <input
                   required
@@ -2107,44 +2265,25 @@ export default function AdminDashboard() {
                   minLength="2"
                   maxLength="20"
                   pattern="[A-Za-z0-9-]+"
-                  placeholder="e.g. MCA02"
+                  placeholder="Auto-generated, e.g. MCA001"
                   value={subjectForm.subjectCode}
                   onChange={(e) => setSubjectForm({ ...subjectForm, subjectCode: e.target.value.toUpperCase() })}
                   className="w-full border rounded-lg p-2 text-sm uppercase outline-none focus:ring-2 focus:ring-purple-500"
                 />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-600 block mb-1">Select Degree / Course</label>
-                <select
-                  required
-                  value={subjectForm.courseId}
-                  onChange={(e) => setSubjectForm({ ...subjectForm, courseId: e.target.value, semester: 1, teacherId: "" })}
-                  className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-purple-500 bg-white"
-                >
-                  <option value="">-- Choose Course --</option>
-                  {courses.map((c) => (
-                    <option key={c._id} value={c._id}>
-                      {c.courseName} ({c.courseCode}) - {c.durationYears || 3} Years
-                    </option>
-                  ))}
-                </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-gray-600 block mb-1">Semester</label>
                   <select
                     required
-                    value={subjectForm.semester}
-                    onChange={(e) => setSubjectForm({ ...subjectForm, semester: Number(e.target.value) })}
+                    value={String(subjectForm.semester)}
+                    onChange={(e) => setSubjectForm((prev) => ({ ...prev, semester: Number(e.target.value) }))}
                     className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-purple-500 bg-white"
                   >
                     {(() => {
                       const selectedCourse = courses.find((c) => c._id === subjectForm.courseId);
-                      const maxYears = selectedCourse?.durationYears || 3;
-                      const totalSemesters = maxYears * 2;
-                      return Array.from({ length: totalSemesters }, (_, i) => i + 1).map((sem) => (
-                        <option key={sem} value={sem}>Semester {sem}</option>
-                      ));
+                      const totalSemesters = Number(selectedCourse?.durationYears || 3) * 2;
+                      return <>{Array.from({ length: totalSemesters }, (_, i) => i + 1).map((sem) => <option key={sem} value={String(sem)}>Semester {sem}</option>)}</>;
                     })()}
                   </select>
                 </div>
@@ -2152,14 +2291,17 @@ export default function AdminDashboard() {
                   <label className="text-xs font-semibold text-gray-600 block mb-1">Credits</label>
                   <select
                     required
-                    value={subjectForm.credits}
-                    onChange={(e) => setSubjectForm({ ...subjectForm, credits: Number(e.target.value) })}
+                    value={subjectCreditsCustom ? "CUSTOM" : String(subjectForm.credits)}
+                    onChange={(e) => {
+                      if (e.target.value === "CUSTOM") { setSubjectCreditsCustom(true); setSubjectForm((prev) => ({ ...prev, credits: "" })); }
+                      else { setSubjectCreditsCustom(false); setSubjectForm((prev) => ({ ...prev, credits: Number(e.target.value) })); }
+                    }}
                     className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-purple-500 bg-white"
                   >
-                    {[1, 2, 3, 4, 5, 6].map((credit) => (
-                      <option key={credit} value={credit}>{credit} {credit === 1 ? "Credit" : "Credits"}</option>
-                    ))}
+                    {[1, 2, 3, 4, 5, 6].map((credit) => <option key={credit} value={String(credit)}>{credit} {credit === 1 ? "Credit" : "Credits"}</option>)}
+                    <option value="CUSTOM">Enter manually…</option>
                   </select>
+                  {subjectCreditsCustom && <input type="number" required min="1" max="20" value={subjectForm.credits} onChange={(e) => setSubjectForm((prev) => ({ ...prev, credits: e.target.value }))} placeholder="Enter credits (1–20)" className="mt-2 w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-purple-500" />}
                 </div>
               </div>
               <div>
@@ -2198,69 +2340,45 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 12. ASSIGN TEACHER MODAL */}
+      {/* 12. SUBJECT ALLOCATION MODAL */}
       {activeModal === "assignTeacher" && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-800">Assign Faculty to Subject</h3>
-              <button onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-gray-600 text-lg">✕</button>
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-lg font-bold text-gray-800">Allocate Subject</h3>
+              <button type="button" onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-gray-600 text-lg">✕</button>
             </div>
+            <p className="text-sm text-gray-500 mb-4">Choose the course, semester, subject, teacher, and then the divisions that will study this subject.</p>
             <form onSubmit={handleAssignTeacher} className="space-y-4">
-              <div>
-                <label className="text-xs font-semibold text-gray-600 block mb-1">Select Subject</label>
-                <select
-                  required
-                  value={assignForm.subjectId}
-                  onChange={(e) => setAssignForm({ subjectId: e.target.value, teacherId: "" })}
-                  className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-green-500 bg-white"
-                >
-                  <option value="">-- Choose Subject --</option>
-                  {subjects.map((s) => (
-                    <option key={s._id} value={s._id}>
-                      {s.subjectName} ({s.subjectCode}) [{s.course?.courseName || s.course?.courseCode || "General"}]
-                    </option>
-                  ))}
+              <div><label className="text-xs font-semibold text-gray-600 block mb-1">1. Course</label>
+                <select required value={assignForm.courseName} onChange={e => setAssignForm({ ...assignForm, courseName: e.target.value, semester: "", subjectId: "", teacherId: "", divisions: [] })} className="w-full border rounded-lg p-2.5 text-sm bg-white">
+                  <option value="">Choose course</option>{courses.map(c => <option key={c._id} value={c.courseName}>{c.courseName}</option>)}
                 </select>
               </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-600 block mb-1">Select Teacher (Filtered by Course/Department)</label>
-                <select
-                  required
-                  disabled={!assignForm.subjectId}
-                  value={assignForm.teacherId}
-                  onChange={(e) => setAssignForm({ ...assignForm, teacherId: e.target.value })}
-                  className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-green-500 bg-white disabled:bg-gray-100 disabled:cursor-not-allowed"
-                >
-                  <option value="">{!assignForm.subjectId ? "-- Select a Subject First --" : "-- Choose Faculty Member --"}</option>
-                  {(() => {
-                    if (!assignForm.subjectId) return null;
-                    const chosenSubject = subjects.find((s) => s._id === assignForm.subjectId);
-                    const courseName = (chosenSubject?.course?.courseName || "").trim().toLowerCase();
-                    const courseCode = (chosenSubject?.course?.courseCode || "").trim().toLowerCase();
-
-                    const matchingTeachers = teachers.filter((t) => {
-                      const dept = (t.department || "").trim().toLowerCase();
-                      return dept === courseName || dept === courseCode;
-                    });
-
-                    if (matchingTeachers.length === 0) {
-                      return <option value="" disabled>⚠️ No teachers registered under {chosenSubject?.course?.courseName || "this course"}</option>;
-                    }
-
-                    return matchingTeachers.map((t) => (
-                      <option key={t._id} value={t._id}>👨‍🏫 {t.name} (ID: {t.id_no})</option>
-                    ));
-                  })()}
+              <div><label className="text-xs font-semibold text-gray-600 block mb-1">2. Semester</label>
+                <select required disabled={!assignForm.courseName} value={assignForm.semester} onChange={e => setAssignForm({ ...assignForm, semester: e.target.value, subjectId: "", teacherId: "", divisions: [] })} className="w-full border rounded-lg p-2.5 text-sm bg-white disabled:bg-gray-100">
+                  <option value="">Choose semester</option>{Array.from(new Set([
+                    ...Array.from({ length: Math.max(1, Number(courses.find(c => c.courseName === assignForm.courseName)?.durationYears || 2) * 2) }, (_, i) => i + 1),
+                    ...subjects.filter(s => (s.course?.courseName || "") === assignForm.courseName).map(s => Number(s.semester)).filter(n => Number.isInteger(n) && n >= 1 && n <= 20),
+                  ])).sort((a, b) => a - b).map(n => <option key={n} value={String(n)}>Semester {n}</option>)}
                 </select>
               </div>
-              <button
-                type="submit"
-                disabled={!assignForm.subjectId || !assignForm.teacherId}
-                className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Confirm Allocation
-              </button>
+              <div><label className="text-xs font-semibold text-gray-600 block mb-1">3. Subject</label>
+                <select required disabled={!assignForm.courseName || !assignForm.semester} value={assignForm.subjectId} onChange={e => { const sub = subjects.find(x => x._id === e.target.value); setAssignForm({ ...assignForm, subjectId: e.target.value, teacherId: sub?.teacher?._id || "", divisions: sub?.divisions || [] }); }} className="w-full border rounded-lg p-2.5 text-sm bg-white disabled:bg-gray-100">
+                  <option value="">Choose subject</option>{subjects.filter(s => (s.course?.courseName || "") === assignForm.courseName && String(s.semester) === String(assignForm.semester)).map(s => <option key={s._id} value={s._id}>{s.subjectName} ({s.subjectCode})</option>)}
+                </select>
+                {assignForm.courseName && assignForm.semester && !subjects.some(s => (s.course?.courseName || "") === assignForm.courseName && String(s.semester) === String(assignForm.semester)) && <p className="mt-1 text-xs text-amber-700">No subjects found for this course and semester. Add a subject first.</p>}
+              </div>
+              <div><label className="text-xs font-semibold text-gray-600 block mb-1">4. Teacher</label>
+                <select required disabled={!assignForm.subjectId} value={assignForm.teacherId} onChange={e => setAssignForm({ ...assignForm, teacherId: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm bg-white disabled:bg-gray-100">
+                  <option value="">Choose teacher</option>{teachers.filter(t => { const sub = subjects.find(s => s._id === assignForm.subjectId); const dept = (t.department || "").trim().toLowerCase(); const cn = (sub?.course?.courseName || "").trim().toLowerCase(); const cc = (sub?.course?.courseCode || "").trim().toLowerCase(); return !dept || dept === cn || dept === cc; }).map(t => <option key={t._id} value={t._id}>{t.name} ({t.id_no})</option>)}
+                </select>
+              </div>
+              <div><label className="text-xs font-semibold text-gray-600 block mb-2">5. Divisions</label>
+                {!assignForm.subjectId ? <p className="text-xs text-gray-500">Select a subject first.</p> : allocationDivisions.length === 0 ? <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800">No divisions are configured for this course and semester yet. Create them in Division Management first.</p> : <div className="grid grid-cols-2 gap-2 rounded-lg border p-3">{allocationDivisions.map(d => <label key={d._id} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm"><input type="checkbox" checked={assignForm.divisions.includes(d.name)} onChange={e => setAssignForm({ ...assignForm, divisions: e.target.checked ? [...new Set([...assignForm.divisions, d.name])] : assignForm.divisions.filter(n => n !== d.name) })} />Division {d.name}</label>)}</div>}
+                <p className="mt-1 text-xs text-gray-500">Select every division that should have this subject. Leave none selected only if the subject is available to all divisions by default.</p>
+              </div>
+              <button type="submit" disabled={!assignForm.courseName || !assignForm.semester || !assignForm.subjectId || !assignForm.teacherId} className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed">Save Allocation</button>
             </form>
           </div>
         </div>
@@ -2275,6 +2393,30 @@ export default function AdminDashboard() {
               <button onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-gray-600">✕</button>
             </div>
             <form onSubmit={handleAddStudent} className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-600 block mb-1">Degree / Program</label>
+                <select
+                  required
+                  value={studentForm.course}
+                  onChange={(e) => {
+                    const selectedCourseName = e.target.value;
+                    setStudentForm({
+                      ...studentForm,
+                      course: selectedCourseName,
+                      semester: 1,
+                      year: "1st Year",
+                    });
+                  }}
+                  className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-orange-500 bg-white"
+                >
+                  <option value="">-- Choose Course --</option>
+                  {courses.map((c) => (
+                    <option key={c._id} value={c.courseName}>
+                      {c.courseName} ({c.courseCode}) - {c.durationYears || 3} Years
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label className="text-xs font-semibold text-gray-600 block mb-1">Surname</label>
                 <input required minLength="1" maxLength="50" placeholder="SURNAME" value={studentForm.surname || ""} onChange={(e) => setStudentForm({ ...studentForm, surname: e.target.value.toUpperCase() })} className="w-full border rounded-lg p-2 text-sm uppercase outline-none focus:ring-2 focus:ring-orange-500" />
@@ -2335,30 +2477,6 @@ export default function AdminDashboard() {
                 <p className="text-[10px] text-gray-500 mt-1">JPG, PNG or WEBP • max 5 MB</p>
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-gray-600 block mb-1">Degree / Program</label>
-                <select
-                  required
-                  value={studentForm.course}
-                  onChange={(e) => {
-                    const selectedCourseName = e.target.value;
-                    setStudentForm({
-                      ...studentForm,
-                      course: selectedCourseName,
-                      semester: 1,
-                      year: "1st Year",
-                    });
-                  }}
-                  className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-orange-500 bg-white"
-                >
-                  <option value="">-- Choose Course --</option>
-                  {courses.map((c) => (
-                    <option key={c._id} value={c.courseName}>
-                      {c.courseName} ({c.courseCode}) - {c.durationYears || 3} Years
-                    </option>
-                  ))}
-                </select>
-              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-gray-600 block mb-1">Semester</label>
@@ -2479,11 +2597,9 @@ export default function AdminDashboard() {
                   onChange={(e) => setTeacherForm({ ...teacherForm, department: e.target.value })}
                   className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-green-500 bg-white"
                 >
-                  <option value="">-- Select Course / Program --</option>
-                  {courses.map((c) => (
-                    <option key={c._id} value={c.courseName}>
-                      {c.courseName} ({c.courseCode})
-                    </option>
+                  <option value="">-- Select Department --</option>
+                  {departments.filter((department) => department.status !== false).map((department) => (
+                    <option key={department._id} value={department._id}>{department.departmentName} ({department.departmentCode})</option>
                   ))}
                 </select>
               </div>

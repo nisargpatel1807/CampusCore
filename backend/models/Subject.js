@@ -20,7 +20,7 @@ const subjectSchema = new mongoose.Schema({
   },
   course: { type: mongoose.Schema.Types.ObjectId, ref: "Course", required: true },
   semester: { type: Number, default: 1, min: 1, max: 20 },
-  credits: { type: Number, default: 4, min: 1, max: 10 },
+  credits: { type: Number, default: 4, min: 1, max: 20 },
   teacher: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   divisions: { type: [String], default: [] },
 }, { timestamps: true });

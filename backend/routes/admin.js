@@ -7,6 +7,7 @@ const fs = require("fs");
 
 const User = require("../models/user");
 const Course = require("../models/course.JS");
+const Department = require("../models/Department");
 const Subject = require("../models/Subject");
 const ServiceRequest = require("../models/ServiceRequest");
 const CalendarEvent = require("../models/CalendarEvent");
@@ -98,7 +99,7 @@ const sanitizeStaff = (staff) => {
 
 const getCourseByName = async (courseName) => {
   const v = clean(courseName);
-  return Course.findOne({ courseName: v });
+  return Course.findOne({ courseName: v }).populate("department", "departmentName departmentCode status");
 };
 
 const getTotalSemesters = (course) => Math.max(1, Number(course?.durationYears || 3) * 2);
@@ -133,7 +134,7 @@ router.get("/dashboard", async (req, res) => {
 router.get("/academic-meta", async (req, res) => {
   try {
     const [courses, teachers, subjects] = await Promise.all([
-      Course.find().sort({ courseCode: 1 }).lean(),
+      Course.find().populate("department", "departmentName departmentCode status").sort({ courseCode: 1 }).lean(),
       User.find({ role: "teacher" }).select("_id name id_no department status profilePhoto").sort({ name: 1 }).lean(),
       Subject.find()
         .populate("course", "courseName courseCode durationYears")
@@ -145,6 +146,83 @@ router.get("/academic-meta", async (req, res) => {
   } catch (error) {
     console.error("Admin Academic Meta:", error);
     res.status(500).json({ message: "Failed to fetch dropdown datasets." });
+  }
+});
+
+// ======================= DEPARTMENT CRUD =======================
+router.get("/departments", async (req, res) => {
+  try {
+    res.json(await Department.find().sort({ departmentName: 1 }).lean());
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch departments." });
+  }
+});
+
+router.post("/departments", async (req, res) => {
+  try {
+    const departmentCode = clean(req.body.departmentCode).toUpperCase();
+    const departmentName = clean(req.body.departmentName);
+    const description = clean(req.body.description);
+    const status = req.body.status !== false;
+    const codeError = validateCode(departmentCode, "Department code");
+    const nameError = validateName(departmentName, "Department name");
+    if (codeError || nameError) return res.status(400).json({ message: codeError || nameError });
+    if (description.length > 500) return res.status(400).json({ message: "Description cannot exceed 500 characters." });
+    const existingDepartments = await Department.find().select("_id departmentCode departmentName").lean();
+    const duplicate = existingDepartments.find((item) =>
+      item.departmentCode.toUpperCase() === departmentCode ||
+      item.departmentName.trim().toLowerCase() === departmentName.toLowerCase()
+    );
+    if (duplicate) return res.status(409).json({ message: "A department with this name or code already exists." });
+    const department = await Department.create({ departmentCode, departmentName, description, status });
+    res.status(201).json({ message: "Department created successfully.", department });
+  } catch (error) {
+    console.error("Create Department:", error);
+    res.status(500).json({ message: "Failed to create department." });
+  }
+});
+
+router.put("/departments/:id", async (req, res) => {
+  try {
+    if (!isValidId(req.params.id)) return res.status(400).json({ message: "Invalid department ID." });
+    const departmentCode = clean(req.body.departmentCode).toUpperCase();
+    const departmentName = clean(req.body.departmentName);
+    const description = clean(req.body.description);
+    const status = req.body.status !== false;
+    const codeError = validateCode(departmentCode, "Department code");
+    const nameError = validateName(departmentName, "Department name");
+    if (codeError || nameError) return res.status(400).json({ message: codeError || nameError });
+    if (description.length > 500) return res.status(400).json({ message: "Description cannot exceed 500 characters." });
+    const existingDepartments = await Department.find({ _id: { $ne: req.params.id } }).select("_id departmentCode departmentName").lean();
+    const duplicate = existingDepartments.find((item) =>
+      item.departmentCode.toUpperCase() === departmentCode ||
+      item.departmentName.trim().toLowerCase() === departmentName.toLowerCase()
+    );
+    if (duplicate) return res.status(409).json({ message: "Another department already uses this name or code." });
+    const department = await Department.findByIdAndUpdate(req.params.id, { departmentCode, departmentName, description, status }, { new: true, runValidators: true });
+    if (!department) return res.status(404).json({ message: "Department not found." });
+    res.json({ message: "Department updated successfully.", department });
+  } catch (error) {
+    console.error("Update Department:", error);
+    res.status(500).json({ message: "Failed to update department." });
+  }
+});
+
+router.delete("/departments/:id", async (req, res) => {
+  try {
+    if (!isValidId(req.params.id)) return res.status(400).json({ message: "Invalid department ID." });
+    const department = await Department.findById(req.params.id);
+    if (!department) return res.status(404).json({ message: "Department not found." });
+    const [linkedCourse, linkedTeacher] = await Promise.all([
+      Course.findOne({ department: department._id }),
+      User.findOne({ role: "teacher", departmentId: department._id })
+    ]);
+    if (linkedCourse || linkedTeacher) return res.status(409).json({ message: "This department is assigned to a course or teacher. Reassign them before deleting it." });
+    await Department.findByIdAndDelete(req.params.id);
+    res.json({ message: "Department deleted successfully." });
+  } catch (error) {
+    console.error("Delete Department:", error);
+    res.status(500).json({ message: "Failed to delete department." });
   }
 });
 
@@ -163,12 +241,16 @@ router.post("/course", async (req, res) => {
       return res.status(400).json({ message: "Duration must be between 1 and 5 whole years." });
     }
 
+    if (!isValidId(departmentId)) return res.status(400).json({ message: "Please select a valid department." });
+    const department = await Department.findOne({ _id: departmentId, status: true });
+    if (!department) return res.status(400).json({ message: "Selected department is invalid or inactive." });
+
     const duplicate = await Course.findOne({
       $or: [{ courseCode: code }, { courseName: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") }],
     });
     if (duplicate) return res.status(409).json({ message: "A course with this name or code already exists." });
 
-    const course = await Course.create({ courseName: name, courseCode: code, durationYears });
+    const course = await Course.create({ courseName: name, courseCode: code, durationYears, department: department._id });
     res.status(201).json({ message: "Course created successfully.", course });
   } catch (error) {
     console.error("Create Course:", error);
@@ -177,7 +259,7 @@ router.post("/course", async (req, res) => {
 });
 
 router.get("/courses", async (req, res) => {
-  try { res.json(await Course.find().sort({ courseCode: 1 }).lean()); }
+  try { res.json(await Course.find().populate("department", "departmentName departmentCode status").sort({ courseCode: 1 }).lean()); }
   catch (error) { res.status(500).json({ message: "Failed to fetch courses." }); }
 });
 
@@ -188,6 +270,7 @@ router.put("/course/:id", async (req, res) => {
     const name = clean(req.body.courseName);
     const code = clean(req.body.courseCode).toUpperCase();
     const durationYears = Number(req.body.durationYears);
+    const departmentId = clean(req.body.departmentId || req.body.department);
 
     const nameError = validateName(name, "Course name");
     const codeError = validateCode(code, "Course code");
@@ -197,6 +280,10 @@ router.put("/course/:id", async (req, res) => {
       return res.status(400).json({ message: "Duration must be between 1 and 5 whole years." });
     }
 
+    if (!isValidId(departmentId)) return res.status(400).json({ message: "Please select a valid department." });
+    const department = await Department.findOne({ _id: departmentId, status: true });
+    if (!department) return res.status(400).json({ message: "Selected department is invalid or inactive." });
+
     const duplicate = await Course.findOne({
       _id: { $ne: req.params.id },
       $or: [{ courseCode: code }, { courseName: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") }],
@@ -205,7 +292,7 @@ router.put("/course/:id", async (req, res) => {
 
     const updated = await Course.findByIdAndUpdate(
       req.params.id,
-      { courseName: name, courseCode: code, durationYears },
+      { courseName: name, courseCode: code, durationYears, department: department._id },
       { new: true, runValidators: true }
     );
     if (!updated) return res.status(404).json({ message: "Course not found." });
@@ -235,12 +322,11 @@ router.post("/subject", async (req, res) => {
     const course = await Course.findById(courseId);
     if (!course) return res.status(404).json({ message: "Selected course was not found." });
 
-    const maxSem = getTotalSemesters(course);
-    if (!Number.isInteger(semester) || semester < 1 || semester > maxSem) {
-      return res.status(400).json({ message: `Semester must be between 1 and ${maxSem} for this course.` });
+    if (!Number.isInteger(semester) || semester < 1 || semester > 20) {
+      return res.status(400).json({ message: "Semester must be between 1 and 20." });
     }
-    if (!Number.isInteger(credits) || credits < 1 || credits > 10) {
-      return res.status(400).json({ message: "Credits must be between 1 and 10." });
+    if (!Number.isInteger(credits) || credits < 1 || credits > 20) {
+      return res.status(400).json({ message: "Credits must be between 1 and 20." });
     }
 
     const duplicate = await Subject.findOne({
@@ -256,6 +342,9 @@ router.post("/subject", async (req, res) => {
       if (!isValidId(teacherId)) return res.status(400).json({ message: "Invalid teacher selected." });
       teacher = await User.findOne({ _id: teacherId, role: "teacher", status: true });
       if (!teacher) return res.status(400).json({ message: "Selected teacher is invalid or inactive." });
+      if (course.department && teacher.departmentId && String(course.department) !== String(teacher.departmentId)) {
+        return res.status(400).json({ message: "Select a teacher from the course's department." });
+      }
     }
 
     const subject = await Subject.create({
@@ -305,12 +394,11 @@ router.put("/subject/:id", async (req, res) => {
 
     const course = await Course.findById(courseId);
     if (!course) return res.status(404).json({ message: "Selected course was not found." });
-    const maxSem = getTotalSemesters(course);
-    if (!Number.isInteger(semester) || semester < 1 || semester > maxSem) {
-      return res.status(400).json({ message: `Semester must be between 1 and ${maxSem} for this course.` });
+    if (!Number.isInteger(semester) || semester < 1 || semester > 20) {
+      return res.status(400).json({ message: "Semester must be between 1 and 20." });
     }
-    if (!Number.isInteger(credits) || credits < 1 || credits > 10) {
-      return res.status(400).json({ message: "Credits must be between 1 and 10." });
+    if (!Number.isInteger(credits) || credits < 1 || credits > 20) {
+      return res.status(400).json({ message: "Credits must be between 1 and 20." });
     }
 
     const duplicate = await Subject.findOne({
@@ -327,6 +415,9 @@ router.put("/subject/:id", async (req, res) => {
       if (!isValidId(teacherId)) return res.status(400).json({ message: "Invalid teacher selected." });
       teacher = await User.findOne({ _id: teacherId, role: "teacher", status: true });
       if (!teacher) return res.status(400).json({ message: "Selected teacher is invalid or inactive." });
+      if (course.department && teacher.departmentId && String(course.department) !== String(teacher.departmentId)) {
+        return res.status(400).json({ message: "Select a teacher from the course's department." });
+      }
     }
 
     const updated = await Subject.findByIdAndUpdate(
@@ -343,6 +434,19 @@ router.put("/subject/:id", async (req, res) => {
   }
 });
 
+router.delete("/subject/:id", async (req, res) => {
+  try {
+    if (!isValidId(req.params.id)) return res.status(400).json({ message: "Invalid subject ID." });
+    const subject = await Subject.findById(req.params.id);
+    if (!subject) return res.status(404).json({ message: "Subject not found." });
+    await Subject.findByIdAndDelete(req.params.id);
+    res.json({ message: "Subject deleted successfully." });
+  } catch (error) {
+    console.error("Delete Subject:", error);
+    res.status(500).json({ message: "Failed to delete subject." });
+  }
+});
+
 router.put("/assign-subject", async (req, res) => {
   try {
     const subjectId = clean(req.body.subjectId);
@@ -351,11 +455,14 @@ router.put("/assign-subject", async (req, res) => {
       return res.status(400).json({ message: "Please select a valid subject and teacher." });
     }
 
-    const subject = await Subject.findById(subjectId).populate("course", "courseName courseCode");
+    const subject = await Subject.findById(subjectId).populate({ path: "course", select: "courseName courseCode department", populate: { path: "department", select: "departmentName departmentCode" } });
     if (!subject) return res.status(404).json({ message: "Subject not found." });
 
     const teacher = await User.findOne({ _id: teacherId, role: "teacher", status: true });
     if (!teacher) return res.status(400).json({ message: "Selected teacher is invalid or inactive." });
+    if (subject.course?.department?._id && teacher.departmentId && String(subject.course.department._id) !== String(teacher.departmentId)) {
+      return res.status(400).json({ message: "Select a teacher from the course's department." });
+    }
 
     const assigned = await Subject.findByIdAndUpdate(subjectId, { teacher: teacherId }, { new: true })
       .populate("course", "courseName courseCode durationYears")
@@ -373,7 +480,8 @@ router.post("/teacher", profileUpload.single("profilePhoto"), async (req, res) =
     const name = clean(req.body.name);
     const id_no = clean(req.body.id_no);
     const password = String(req.body.password ?? "");
-    const department = clean(req.body.department);
+    const department = clean(req.body.departmentName || req.body.department);
+    const departmentId = clean(req.body.departmentId);
 
     const nameError = validateName(name, "Teacher name");
     const idError = validateUserId(id_no, "Faculty ID");
@@ -382,10 +490,9 @@ router.post("/teacher", profileUpload.single("profilePhoto"), async (req, res) =
       removeUploadedFile(req.file);
       return res.status(400).json({ message: nameError || idError || passError });
     }
-    if (department.length < 2 || department.length > 100) {
-      removeUploadedFile(req.file);
-      return res.status(400).json({ message: "Course / department must be between 2 and 100 characters." });
-    }
+    if (!isValidId(departmentId)) { removeUploadedFile(req.file); return res.status(400).json({ message: "Please select a valid department." }); }
+    const selectedDepartment = await Department.findOne({ _id: departmentId, status: true });
+    if (!selectedDepartment) { removeUploadedFile(req.file); return res.status(400).json({ message: "Selected department is invalid or inactive." }); }
 
     const duplicate = await User.findOne({ id_no });
     if (duplicate) {
@@ -406,8 +513,9 @@ router.post("/teacher", profileUpload.single("profilePhoto"), async (req, res) =
       email,
       password: await bcrypt.hash(password, 10),
       role: "teacher",
-      department,
-      course: department,
+      department: selectedDepartment.departmentName,
+      departmentId: selectedDepartment._id,
+      course: selectedDepartment.departmentName,
       profilePhoto: req.file ? `/uploads/${req.file.filename}` : "",
       status: true,
     });
@@ -435,20 +543,24 @@ router.put("/teacher/:id", profileUpload.single("profilePhoto"), async (req, res
 
     const name = clean(req.body.name);
     const id_no = clean(req.body.id_no);
-    const department = clean(req.body.department);
+    const department = clean(req.body.departmentName || req.body.department);
+    const departmentId = clean(req.body.departmentId);
 
     const nameError = validateName(name, "Teacher name");
     const idError = validateUserId(id_no, "Faculty ID");
     if (nameError || idError) { removeUploadedFile(req.file); return res.status(400).json({ message: nameError || idError }); }
-    if (department.length < 2 || department.length > 100) { removeUploadedFile(req.file); return res.status(400).json({ message: "Course / department must be between 2 and 100 characters." }); }
+    if (!isValidId(departmentId)) { removeUploadedFile(req.file); return res.status(400).json({ message: "Please select a valid department." }); }
+    const selectedDepartment = await Department.findOne({ _id: departmentId, status: true });
+    if (!selectedDepartment) { removeUploadedFile(req.file); return res.status(400).json({ message: "Selected department is invalid or inactive." }); }
 
     const duplicate = await User.findOne({ id_no, _id: { $ne: teacher._id } });
     if (duplicate) { removeUploadedFile(req.file); return res.status(409).json({ message: "This Faculty ID is already in use." }); }
 
     teacher.name = name;
     teacher.id_no = id_no;
-    teacher.department = department;
-    teacher.course = department;
+    teacher.department = selectedDepartment.departmentName;
+    teacher.departmentId = selectedDepartment._id;
+    teacher.course = selectedDepartment.departmentName;
     if (req.file) teacher.profilePhoto = `/uploads/${req.file.filename}`;
     await teacher.save();
 
@@ -530,7 +642,8 @@ router.post("/student", profileUpload.single("profilePhoto"), async (req, res) =
       role: "student",
       division: "",
       course: course.courseName,
-      department: course.courseName,
+      department: course.department?.departmentName || course.courseName,
+      departmentId: course.department?._id || null,
       semester,
       year,
       profilePhoto: req.file ? `/uploads/${req.file.filename}` : "",
@@ -593,7 +706,8 @@ router.put("/student/:id", profileUpload.single("profilePhoto"), async (req, res
     student.name = name;
     student.id_no = id_no;
     student.course = course.courseName;
-    student.department = course.courseName;
+    student.department = course.department?.departmentName || course.courseName;
+    student.departmentId = course.department?._id || null;
     student.semester = semester;
     student.year = calculateYear(semester);
     student.email = `${id_no.toLowerCase()}@campuscore.edu`;

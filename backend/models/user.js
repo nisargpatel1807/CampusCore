@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+
 const userSchema = new mongoose.Schema({
   name: { type: String, required: [true, "Full name is required."], trim: true, minlength: [2, "Name must be at least 2 characters long."], maxlength: [100, "Name must be at most 100 characters long."] },
   surname: { type: String, trim: true, uppercase: true, maxlength: 50, default: "" },
@@ -10,19 +11,20 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   role: { type: String, enum: ["admin", "teacher", "student"], required: true },
   department: { type: String, default: "General", trim: true, maxlength: 100 },
+  departmentId: { type: mongoose.Schema.Types.ObjectId, ref: "Department", default: null },
   course: { type: String, default: "General", trim: true, maxlength: 100 },
   year: { type: String, default: "1st Year", trim: true, maxlength: 30 },
   semester: { type: Number, default: 1, min: 1, max: 20 },
   division: { type: String, default: "", trim: true, uppercase: true, maxlength: 10 },
   status: { type: Boolean, default: true },
-  profilePhoto: { type: String, default: "", maxlength: 300 },
+  profilePhoto: { type: String, default: "", maxlength: 300 }
 }, { timestamps: true });
+
 userSchema.pre("validate", function(next) {
   this.surname = String(this.surname || "").trim().toUpperCase();
   this.firstName = String(this.firstName || "").trim().toUpperCase();
   this.secondName = String(this.secondName || "").trim().toUpperCase();
   this.lastName = String(this.lastName || "").trim().toUpperCase();
-  // Keep legacy records compatible while preferring the new three-part name order.
   const parts = [this.surname, this.firstName, this.secondName].filter(Boolean);
   if (parts.length) this.name = parts.join(" ");
   else if (this.firstName || this.lastName) this.name = [this.firstName, this.lastName].filter(Boolean).join(" ");
@@ -30,4 +32,5 @@ userSchema.pre("validate", function(next) {
   else this.division = "";
   next();
 });
+
 module.exports = mongoose.models.User || mongoose.model("User", userSchema);
