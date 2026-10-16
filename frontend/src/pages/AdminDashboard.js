@@ -2371,7 +2371,22 @@ body.append(
               </div>
               <div><label className="text-xs font-semibold text-gray-600 block mb-1">4. Teacher</label>
                 <select required disabled={!assignForm.subjectId} value={assignForm.teacherId} onChange={e => setAssignForm({ ...assignForm, teacherId: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm bg-white disabled:bg-gray-100">
-                  <option value="">Choose teacher</option>{teachers.filter(t => { const sub = subjects.find(s => s._id === assignForm.subjectId); const dept = (t.department || "").trim().toLowerCase(); const cn = (sub?.course?.courseName || "").trim().toLowerCase(); const cc = (sub?.course?.courseCode || "").trim().toLowerCase(); return !dept || dept === cn || dept === cc; }).map(t => <option key={t._id} value={t._id}>{t.name} ({t.id_no})</option>)}
+                  <option value="">Choose teacher</option>{teachers.filter(t => {
+                    const sub = subjects.find(s => s._id === assignForm.subjectId);
+                    const course = courses.find(c => c._id === sub?.course?._id || c.courseName === sub?.course?.courseName);
+                    const teacherDept = String(t.department?.departmentName || t.department || "").trim().toLowerCase();
+                    const courseDept = String(course?.department?.departmentName || course?.departmentName || "").trim().toLowerCase();
+                    const courseDeptCode = String(course?.department?.departmentCode || course?.departmentCode || "").trim().toLowerCase();
+                    const courseName = String(sub?.course?.courseName || "").trim().toLowerCase();
+                    const courseCode = String(sub?.course?.courseCode || course?.courseCode || "").trim().toLowerCase();
+                    // Department names are the primary match (e.g. Computer Application -> MCA course).
+                    // If the course has no department mapping, do not hide all teachers from the dropdown.
+                    return !teacherDept || !courseDept
+                      || teacherDept === courseDept
+                      || (courseDeptCode && teacherDept === courseDeptCode)
+                      || teacherDept === courseName
+                      || teacherDept === courseCode;
+                  }).map(t => <option key={t._id} value={t._id}>{t.name} ({t.id_no})</option>)}
                 </select>
               </div>
               <div><label className="text-xs font-semibold text-gray-600 block mb-2">5. Divisions</label>
