@@ -79,14 +79,18 @@ const [departments, setDepartments] = useState([]);
     secondName: "",
     lastName: "",
     id_no: "",
+    email: "",
+    phone: "",
     password: "",
     course: "",
     semester: 1,
     year: "1st Year",
   });
   const [studentPhoto, setStudentPhoto] = useState(null);
-  const [teacherForm, setTeacherForm] = useState({ name: "", id_no: "", password: "", department: "" });
+  const [studentEditPhoto, setStudentEditPhoto] = useState(null);
+  const [teacherForm, setTeacherForm] = useState({ name: "", id_no: "", email: "", phone: "", password: "", department: "" });
   const [teacherPhoto, setTeacherPhoto] = useState(null);
+  const [teacherEditPhoto, setTeacherEditPhoto] = useState(null);
 
   // Course Tracker Manager
   const [courseTrackerSubjects, setCourseTrackerSubjects] = useState([]);
@@ -862,10 +866,16 @@ const [departments, setDepartments] = useState([]);
     if (!/^[A-Za-z0-9_-]{3,30}$/.test(idNo)) return alert("Faculty ID must be 3–30 characters and use only letters, numbers, hyphens, or underscores.");
     if (password.length < 8 || password.length > 100 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[^A-Za-z0-9]/.test(password)) return alert("Use 8–100 characters with uppercase, lowercase and a special character.");
     if (!teacherForm.department.trim()) return alert("Please select a department.");
+    const email = String(teacherForm.email || "").trim().toLowerCase();
+    const phone = String(teacherForm.phone || "").trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return alert("Please enter a valid teacher email address.");
+    if (phone && (phone.length > 30 || !/^[0-9+().\s-]+$/.test(phone) || !/\d/.test(phone))) return alert("Please enter a valid phone number.");
 
     const body = new FormData();
     body.append("name", name);
     body.append("id_no", idNo);
+    body.append("email", email);
+    body.append("phone", phone);
     body.append("password", password);
     body.append("departmentId", teacherForm.department.trim());
 body.append(
@@ -879,7 +889,7 @@ body.append(
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "multipart/form-data" },
       });
       alert("Faculty registered! 👨‍🏫");
-      setTeacherForm({ name: "", id_no: "", password: "", department: "" });
+      setTeacherForm({ name: "", id_no: "", email: "", phone: "", password: "", department: "" });
       setTeacherPhoto(null);
       const file = document.getElementById("teacherProfilePhotoInput");
       if (file) file.value = "";
@@ -898,12 +908,26 @@ body.append(
     if (name.length < 2 || name.length > 100) return alert("Faculty name must be 2–100 characters.");
     if (!/^[A-Za-z0-9_-]{3,30}$/.test(idNo)) return alert("Faculty ID must be 3–30 characters and use only letters, numbers, hyphens, or underscores.");
     if (!(editingTeacher.departmentId || editingTeacher.department || "").trim()) return alert("Please select a department.");
+    const email = String(editingTeacher.email || "").trim().toLowerCase();
+    const phone = String(editingTeacher.phone || "").trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return alert("Please enter a valid teacher email address.");
+    if (phone && (phone.length > 30 || !/^[0-9+().\s-]+$/.test(phone) || !/\d/.test(phone))) return alert("Please enter a valid phone number.");
     const departmentId = editingTeacher.departmentId || editingTeacher.department;
     const departmentName = departments.find((department) => department._id === departmentId)?.departmentName || "";
+    const body = new FormData();
+    body.append("name", name);
+    body.append("id_no", idNo);
+    body.append("email", email);
+    body.append("phone", phone);
+    body.append("departmentId", departmentId);
+    body.append("departmentName", departmentName);
+    if (teacherEditPhoto) body.append("profilePhoto", teacherEditPhoto);
     try {
-      await axios.put(`http://localhost:5000/api/admin/teacher/${editingTeacher._id}`,
-        { ...editingTeacher, name, id_no: idNo, departmentId, departmentName }, authConfig);
+      await axios.put(`http://localhost:5000/api/admin/teacher/${editingTeacher._id}`, body, {
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "multipart/form-data" },
+      });
       alert("Faculty profile updated!");
+      setTeacherEditPhoto(null);
       setActiveModal("viewTeachers");
       loadDashboardData();
       fetchTeachers();
@@ -926,6 +950,10 @@ body.append(
     if (!/^[A-Za-z0-9_-]{3,30}$/.test(idNo)) return alert("Enrollment number must be 3–30 characters and use only letters, numbers, hyphens, or underscores.");
     if (password.length < 8 || password.length > 100 || !/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[^A-Za-z0-9]/.test(password)) return alert("Use 8–100 characters with uppercase, lowercase and a special character.");
     if (!studentForm.course) return alert("Please select a degree / program.");
+    const email = String(studentForm.email || "").trim().toLowerCase();
+    const phone = String(studentForm.phone || "").trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return alert("Please enter a valid student email address.");
+    if (phone && (phone.length > 30 || !/^[0-9+().\s-]+$/.test(phone) || !/\d/.test(phone))) return alert("Please enter a valid phone number.");
 
     const body = new FormData();
     body.append("name", name);
@@ -933,6 +961,8 @@ body.append(
     body.append("firstName", firstName);
     body.append("secondName", secondName);
     body.append("id_no", idNo);
+    body.append("email", email);
+    body.append("phone", phone);
     body.append("password", password);
     body.append("course", studentForm.course);
     body.append("semester", String(studentForm.semester));
@@ -951,6 +981,8 @@ body.append(
         secondName: "",
         lastName: "",
         id_no: "",
+        email: "",
+        phone: "",
         password: "",
         course: courses[0]?.courseName || "",
         semester: 1,
@@ -968,16 +1000,36 @@ body.append(
 
   const handleEditStudent = async (e) => {
     e.preventDefault();
-    const name = editingStudent.name.trim();
     const idNo = editingStudent.id_no.trim();
-    if (name.length < 2 || name.length > 100) return alert("Student name must be 2–100 characters.");
+    const surname = String(editingStudent.surname || "").trim().toUpperCase();
+    const firstName = String(editingStudent.firstName || "").trim().toUpperCase();
+    const secondName = String(editingStudent.secondName || "").trim().toUpperCase();
+    const fullName = [surname, firstName, secondName].filter(Boolean).join(" ");
+    if (!surname || !firstName || fullName.length < 2 || fullName.length > 100) return alert("Surname and first name are required; full name must be 2–100 characters.");
     if (!/^[A-Za-z0-9_-]{3,30}$/.test(idNo)) return alert("Enrollment number must be 3–30 characters and use only letters, numbers, hyphens, or underscores.");
     if (!editingStudent.course) return alert("Please select a course.");
     if (!Number.isInteger(Number(editingStudent.semester)) || Number(editingStudent.semester) < 1) return alert("Please choose a valid semester.");
+    const email = String(editingStudent.email || "").trim().toLowerCase();
+    const phone = String(editingStudent.phone || "").trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return alert("Please enter a valid student email address.");
+    if (phone && (phone.length > 30 || !/^[0-9+().\s-]+$/.test(phone) || !/\d/.test(phone))) return alert("Please enter a valid phone number.");
+    const body = new FormData();
+    body.append("surname", surname);
+    body.append("firstName", firstName);
+    body.append("secondName", secondName);
+    body.append("name", fullName);
+    body.append("id_no", idNo);
+    body.append("email", email);
+    body.append("phone", phone);
+    body.append("course", editingStudent.course);
+    body.append("semester", String(Number(editingStudent.semester)));
+    if (studentEditPhoto) body.append("profilePhoto", studentEditPhoto);
     try {
-      await axios.put(`http://localhost:5000/api/admin/student/${editingStudent._id}`,
-        { ...editingStudent, name, id_no: idNo, semester: Number(editingStudent.semester) }, authConfig);
+      await axios.put(`http://localhost:5000/api/admin/student/${editingStudent._id}`, body, {
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "multipart/form-data" },
+      });
       alert("Student record updated successfully!");
+      setStudentEditPhoto(null);
       setActiveModal("viewStudents");
       fetchStudents();
       loadDashboardData();
@@ -1419,9 +1471,8 @@ body.append(
 
       {/* 1. VIEW FILTERED STUDENTS MODAL */}
       {activeModal === "viewStudents" && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-4xl w-full p-6 shadow-2xl max-h-[85vh] flex flex-col">
-            <div className="flex justify-between items-center mb-4">
+        <div className="fixed inset-0 bg-black/50 flex items-start justify-center p-4 z-50 overflow-y-auto overscroll-contain">
+<div className="bg-white rounded-xl w-[95vw] max-w-5xl p-8 shadow-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain my-auto">            <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-gray-800">Enrolled Students ({students.length})</h3>
               <button onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-gray-600 text-lg">✕</button>
             </div>
@@ -1462,6 +1513,8 @@ body.append(
                   <tr>
                     <th className="p-2.5">Name</th>
                     <th className="p-2.5">ID / Roll No</th>
+                    <th className="p-2.5">Email</th>
+                    <th className="p-2.5">Phone</th>
                     <th className="p-2.5">Course</th>
                     <th className="p-2.5">Semester</th>
                     <th className="p-2.5">Status</th>
@@ -1470,7 +1523,7 @@ body.append(
                 </thead>
                 <tbody className="divide-y">
                   {students.length === 0 ? (
-                    <tr><td colSpan="6" className="text-center py-6 text-gray-400">No students match filters.</td></tr>
+                    <tr><td colSpan="8" className="text-center py-6 text-gray-400">No students match filters.</td></tr>
                   ) : (
                     students.map((s, index) => (
                       <tr
@@ -1480,6 +1533,8 @@ body.append(
                       >
                         <td className="p-2.5 font-medium text-gray-800">{s.name}</td>
                         <td className="p-2.5 font-mono text-gray-600 font-semibold">{s.id_no}</td>
+                        <td className="p-2.5 text-gray-600 break-all">{s.email || "—"}</td>
+                        <td className="p-2.5 text-gray-600 whitespace-nowrap">{s.phone || "—"}</td>
                         <td className="p-2.5 text-gray-600">{s.course}</td>
                         <td className="p-2.5 text-gray-600">Sem {s.semester || 1}</td>
                         <td className="p-2.5">
@@ -1493,11 +1548,18 @@ body.append(
                               setEditingStudent({
                                 _id: s._id,
                                 name: s.name,
+                                surname: s.surname || String(s.name || "").split(/\s+/)[0] || "",
+                                firstName: s.firstName || String(s.name || "").split(/\s+/)[1] || "",
+                                secondName: s.secondName || String(s.name || "").split(/\s+/).slice(2).join(" "),
                                 id_no: s.id_no,
+                                email: s.email || "",
+                                phone: s.phone || "",
+                                profilePhoto: s.profilePhoto || "",
                                 course: s.course,
                                 semester: s.semester || 1,
                                 year: s.year || calculateYearFromSem(s.semester || 1),
                               });
+                              setStudentEditPhoto(null);
                               setActiveModal("editStudent");
                             }}
                             className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-2.5 py-1 rounded font-semibold transition"
@@ -1530,15 +1592,14 @@ body.append(
               <button onClick={() => setActiveModal("viewStudents")} className="text-gray-400 hover:text-gray-600">✕</button>
             </div>
             <form onSubmit={handleEditStudent} className="space-y-3">
-              <div>
-                <label className="text-xs font-semibold text-gray-600 block mb-1">Full Name</label>
-                <input
-                  required
-                  value={editingStudent.name}
-                  onChange={(e) => setEditingStudent({ ...editingStudent, name: e.target.value })}
-                  className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-orange-500"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div><label className="text-xs font-semibold text-gray-600 block mb-1">Surname</label><input required maxLength="50" value={editingStudent.surname || ""} onChange={(e) => setEditingStudent({ ...editingStudent, surname: e.target.value.toUpperCase() })} className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-orange-500" /></div>
+                <div><label className="text-xs font-semibold text-gray-600 block mb-1">First Name</label><input required maxLength="50" value={editingStudent.firstName || ""} onChange={(e) => setEditingStudent({ ...editingStudent, firstName: e.target.value.toUpperCase() })} className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-orange-500" /></div>
+                <div><label className="text-xs font-semibold text-gray-600 block mb-1">Second Name</label><input maxLength="50" value={editingStudent.secondName || ""} onChange={(e) => setEditingStudent({ ...editingStudent, secondName: e.target.value.toUpperCase() })} className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-orange-500" /></div>
               </div>
+              <div><label className="text-xs font-semibold text-gray-600 block mb-1">Email Address</label><input type="email" required maxLength="160" value={editingStudent.email || ""} onChange={(e) => setEditingStudent({ ...editingStudent, email: e.target.value })} className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-orange-500" /></div>
+              <div><label className="text-xs font-semibold text-gray-600 block mb-1">Phone Number (optional)</label><input type="tel" maxLength="30" value={editingStudent.phone || ""} onChange={(e) => setEditingStudent({ ...editingStudent, phone: e.target.value })} className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-orange-500" /></div>
+              <div><label className="text-xs font-semibold text-gray-600 block mb-1">Update Profile Photo (optional)</label><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => { const file = e.target.files?.[0]; if (file && file.size > 5 * 1024 * 1024) { alert("Profile photo must be 5 MB or smaller."); e.target.value = ""; return; } setStudentEditPhoto(file || null); }} className="w-full text-xs text-gray-600" /><p className="text-[10px] text-gray-500 mt-1">JPG, PNG or WEBP • max 5 MB</p></div>
               <div>
                 <label className="text-xs font-semibold text-gray-600 block mb-1">Enrollment / Roll No</label>
                 <input
@@ -1837,6 +1898,8 @@ body.append(
                   <tr>
                     <th className="p-3">Name</th>
                     <th className="p-3">Faculty ID</th>
+                    <th className="p-3">Email</th>
+                    <th className="p-3">Phone</th>
                     <th className="p-3">Department</th>
                     <th className="p-3">Status</th>
                     <th className="p-3 text-right">Action</th>
@@ -1851,6 +1914,8 @@ body.append(
                     >
                       <td className="p-3 font-semibold text-gray-800">{t.name}</td>
                       <td className="p-3 font-mono text-gray-600 font-semibold">{t.id_no}</td>
+                      <td className="p-3 text-gray-600 break-all">{t.email || "—"}</td>
+                      <td className="p-3 text-gray-600 whitespace-nowrap">{t.phone || "—"}</td>
                       <td className="p-3 text-gray-600">{t.department}</td>
                       <td className="p-3">
                         <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${t.status === false ? "bg-red-100 text-red-600" : "bg-green-100 text-green-700"}`}>
@@ -1860,7 +1925,8 @@ body.append(
                       <td className="p-3 text-right space-x-2">
                         <button
                           onClick={() => {
-                            setEditingTeacher({ _id: t._id, name: t.name, id_no: t.id_no, department: t.departmentId || "", departmentId: t.departmentId || "" });
+                            setEditingTeacher({ _id: t._id, name: t.name, id_no: t.id_no, email: t.email || "", phone: t.phone || "", profilePhoto: t.profilePhoto || "", department: t.departmentId || "", departmentId: t.departmentId || "" });
+                            setTeacherEditPhoto(null);
                             setActiveModal("editTeacher");
                           }}
                           className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-2.5 py-1 rounded font-semibold transition"
@@ -1910,6 +1976,9 @@ body.append(
                   className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
+              <div><label className="text-xs font-semibold text-gray-600 block mb-1">Email Address</label><input type="email" required maxLength="160" value={editingTeacher.email || ""} onChange={(e) => setEditingTeacher({ ...editingTeacher, email: e.target.value })} className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-green-500" /></div>
+              <div><label className="text-xs font-semibold text-gray-600 block mb-1">Phone Number (optional)</label><input type="tel" maxLength="30" value={editingTeacher.phone || ""} onChange={(e) => setEditingTeacher({ ...editingTeacher, phone: e.target.value })} className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-green-500" /></div>
+              <div><label className="text-xs font-semibold text-gray-600 block mb-1">Update Profile Photo (optional)</label><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => { const file = e.target.files?.[0]; if (file && file.size > 5 * 1024 * 1024) { alert("Profile photo must be 5 MB or smaller."); e.target.value = ""; return; } setTeacherEditPhoto(file || null); }} className="w-full text-xs text-gray-600" /><p className="text-[10px] text-gray-500 mt-1">JPG, PNG or WEBP • max 5 MB</p></div>
               <div>
                 <label className="text-xs font-semibold text-gray-600 block mb-1">Course / Department</label>
                 <select
@@ -2401,8 +2470,8 @@ body.append(
 
       {/* 13. ENROLL STUDENT MODAL */}
       {activeModal === "addStudent" && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
+        <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto overscroll-contain bg-black/50 p-4">
+  <div className="my-2 w-[95vw] max-w-5xl rounded-xl bg-white p-6 shadow-2xl overflow-y-auto overscroll-contain md:p-8" style={{ maxHeight: "calc(100dvh - 2rem)" }}>
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-gray-800">Enroll Student</h3>
               <button onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-gray-600">✕</button>
@@ -2456,6 +2525,8 @@ body.append(
                   className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-orange-500"
                 />
               </div>
+              <div><label className="text-xs font-semibold text-gray-600 block mb-1">Email Address</label><input type="email" required maxLength="160" placeholder="student@example.com" value={studentForm.email || ""} onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })} className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-orange-500" /></div>
+              <div><label className="text-xs font-semibold text-gray-600 block mb-1">Phone Number (optional)</label><input type="tel" maxLength="30" placeholder="+91 98765 43210" value={studentForm.phone || ""} onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })} className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-orange-500" /></div>
               <div>
                 <label className="text-xs font-semibold text-gray-600 block mb-1">Password</label>
                 <input
@@ -2569,14 +2640,16 @@ body.append(
                   className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
+              <div><label className="text-xs font-semibold text-gray-600 block mb-1">Email Address</label><input type="email" required maxLength="160" placeholder="teacher@example.com" value={teacherForm.email || ""} onChange={(e) => setTeacherForm({ ...teacherForm, email: e.target.value })} className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-green-500" /></div>
+              <div><label className="text-xs font-semibold text-gray-600 block mb-1">Phone Number (optional)</label><input type="tel" maxLength="30" placeholder="+91 98765 43210" value={teacherForm.phone || ""} onChange={(e) => setTeacherForm({ ...teacherForm, phone: e.target.value })} className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-green-500" /></div>
               <div>
                 <label className="text-xs font-semibold text-gray-600 block mb-1">Password</label>
                 <input
                   required
                   type="password"
-                  minLength="6"
+                  minLength="8"
                   maxLength="100"
-                  placeholder="Password (min. 6 characters)"
+                  placeholder="8+ chars, uppercase, lowercase, special character"
                   value={teacherForm.password}
                   onChange={(e) => setTeacherForm({ ...teacherForm, password: e.target.value })}
                   className="w-full border rounded-lg p-2 text-sm outline-none focus:ring-2 focus:ring-green-500"

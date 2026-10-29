@@ -8,6 +8,7 @@ const userSchema = new mongoose.Schema({
   lastName: { type: String, trim: true, uppercase: true, maxlength: 50, default: "" },
   id_no: { type: String, required: [true, "ID / enrollment number is required."], unique: true, trim: true, minlength: [3, "ID must be at least 3 characters long."], maxlength: [30, "ID must be at most 30 characters long."], match: [/^[A-Za-z0-9_-]+$/, "ID may contain only letters, numbers, hyphens, and underscores."] },
   email: { type: String, required: true, unique: true, trim: true, lowercase: true, maxlength: 160, match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/ },
+  phone: { type: String, default: "", trim: true, maxlength: 30 },
   password: { type: String, required: true },
   role: { type: String, enum: ["admin", "teacher", "student"], required: true },
   department: { type: String, default: "General", trim: true, maxlength: 100 },

@@ -34,8 +34,10 @@ const profileUpload = multer({
   storage: imageStorage,
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (!["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)) {
-      return cb(new Error("Only JPG, PNG and WEBP profile photos are allowed."));
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    const allowed = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
+    if (!allowed[ext] || allowed[ext] !== file.mimetype) {
+      return cb(new Error("Only valid JPG, PNG and WEBP profile photos are allowed."));
     }
     cb(null, true);
   },
@@ -54,10 +56,23 @@ const announcementUpload = multer({
 router.use(authMiddleware, requireRole("admin"));
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const validatePhone = (value) => {
+  const phone = clean(value);
+  if (!phone) return null;
+  if (phone.length > 30 || !/^[0-9+().\s-]+$/.test(phone) || !/\d/.test(phone)) {
+    return "Enter a valid phone number using digits and optional +, spaces, parentheses or hyphens.";
+  }
+  return null;
+};
 const idRegex = /^[A-Za-z0-9_-]+$/;
 const codeRegex = /^[A-Z0-9-]+$/;
 
 const clean = (value) => String(value ?? "").trim();
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const findUserByEmail = (email, excludeId) => User.findOne({
+  email: { $regex: `^${escapeRegex(email)}$`, $options: "i" },
+  ...(excludeId ? { _id: { $ne: excludeId } } : {}),
+});
 const isValidId = (id) => mongoose.isValidObjectId(id);
 
 const validateName = (value, label = "Name") => {
@@ -475,6 +490,15 @@ router.put("/assign-subject", async (req, res) => {
 });
 
 // ======================= TEACHER MANAGEMENT =======================
+router.get("/teacher-next-id", async (_req, res) => {
+  try {
+    const ids = await User.find({ role: "teacher" }).select("id_no").lean();
+    let max = 0;
+    ids.forEach(({ id_no }) => { const match = /^TEA(\d+)$/i.exec(String(id_no || "").trim()); if (match) max = Math.max(max, Number(match[1])); });
+    res.json({ suggestedId: `TEA${String(max + 1).padStart(3, "0")}` });
+  } catch (_error) { res.status(500).json({ message: "Failed to generate suggested Faculty ID." }); }
+});
+
 router.post("/teacher", profileUpload.single("profilePhoto"), async (req, res) => {
   try {
     const name = clean(req.body.name);
@@ -482,10 +506,15 @@ router.post("/teacher", profileUpload.single("profilePhoto"), async (req, res) =
     const password = String(req.body.password ?? "");
     const department = clean(req.body.departmentName || req.body.department);
     const departmentId = clean(req.body.departmentId);
+    const email = clean(req.body.email).toLowerCase() || `${id_no.toLowerCase()}@campuscore.edu`;
+    const phone = clean(req.body.phone);
+    const phoneError = validatePhone(phone);
 
     const nameError = validateName(name, "Teacher name");
     const idError = validateUserId(id_no, "Faculty ID");
     const passError = validatePassword(password);
+    if (!emailRegex.test(email) || email.length > 160) { removeUploadedFile(req.file); return res.status(400).json({ message: "Please enter a valid teacher email address." }); }
+    if (phoneError) { removeUploadedFile(req.file); return res.status(400).json({ message: phoneError }); }
     if (nameError || idError || passError) {
       removeUploadedFile(req.file);
       return res.status(400).json({ message: nameError || idError || passError });
@@ -500,17 +529,17 @@ router.post("/teacher", profileUpload.single("profilePhoto"), async (req, res) =
       return res.status(409).json({ message: `ID '${id_no}' is already registered.` });
     }
 
-    const email = `${id_no.toLowerCase()}@campuscore.edu`;
-    const emailTaken = await User.findOne({ email });
+    const emailTaken = await findUserByEmail(email);
     if (emailTaken) {
       removeUploadedFile(req.file);
-      return res.status(409).json({ message: "The generated institutional email already exists." });
+      return res.status(409).json({ message: "This email address is already in use." });
     }
 
     const teacher = await User.create({
       name,
       id_no,
       email,
+      phone,
       password: await bcrypt.hash(password, 10),
       role: "teacher",
       department: selectedDepartment.departmentName,
@@ -523,6 +552,7 @@ router.post("/teacher", profileUpload.single("profilePhoto"), async (req, res) =
     res.status(201).json({ message: "Teacher registered successfully.", teacher: { ...teacher.toObject(), password: undefined } });
   } catch (error) {
     removeUploadedFile(req.file);
+    if (error?.code === 11000) return res.status(409).json({ message: "This email address or ID is already in use." });
     console.error("Create Teacher:", error);
     res.status(500).json({ message: "Failed to create teacher account." });
   }
@@ -545,10 +575,16 @@ router.put("/teacher/:id", profileUpload.single("profilePhoto"), async (req, res
     const id_no = clean(req.body.id_no);
     const department = clean(req.body.departmentName || req.body.department);
     const departmentId = clean(req.body.departmentId);
+    const email = clean(req.body.email).toLowerCase() || teacher.email;
+    const phone = req.body.phone === undefined ? (teacher.phone || "") : clean(req.body.phone);
+    const phoneError = validatePhone(phone);
 
     const nameError = validateName(name, "Teacher name");
     const idError = validateUserId(id_no, "Faculty ID");
     if (nameError || idError) { removeUploadedFile(req.file); return res.status(400).json({ message: nameError || idError }); }
+    if (!emailRegex.test(email) || email.length > 160) { removeUploadedFile(req.file); return res.status(400).json({ message: "Please enter a valid teacher email address." }); }
+    if (phoneError) { removeUploadedFile(req.file); return res.status(400).json({ message: phoneError }); }
+    if (await findUserByEmail(email, teacher._id)) { removeUploadedFile(req.file); return res.status(409).json({ message: "This email address is already in use." }); }
     if (!isValidId(departmentId)) { removeUploadedFile(req.file); return res.status(400).json({ message: "Please select a valid department." }); }
     const selectedDepartment = await Department.findOne({ _id: departmentId, status: true });
     if (!selectedDepartment) { removeUploadedFile(req.file); return res.status(400).json({ message: "Selected department is invalid or inactive." }); }
@@ -558,6 +594,8 @@ router.put("/teacher/:id", profileUpload.single("profilePhoto"), async (req, res
 
     teacher.name = name;
     teacher.id_no = id_no;
+    teacher.email = email;
+    teacher.phone = phone;
     teacher.department = selectedDepartment.departmentName;
     teacher.departmentId = selectedDepartment._id;
     teacher.course = selectedDepartment.departmentName;
@@ -567,6 +605,8 @@ router.put("/teacher/:id", profileUpload.single("profilePhoto"), async (req, res
     res.json({ message: "Teacher updated successfully.", teacher: { ...teacher.toObject(), password: undefined } });
   } catch (error) {
     removeUploadedFile(req.file);
+    if (error?.code === 11000) return res.status(409).json({ message: "This email address or Faculty ID is already in use." });
+    console.error("Update Teacher:", error);
     res.status(500).json({ message: "Failed to update teacher." });
   }
 });
@@ -597,10 +637,15 @@ router.post("/student", profileUpload.single("profilePhoto"), async (req, res) =
     const password = String(req.body.password ?? "");
     const courseName = clean(req.body.course);
     const semester = Number(req.body.semester);
+    const email = clean(req.body.email).toLowerCase() || `${id_no.toLowerCase()}@campuscore.edu`;
+    const phone = clean(req.body.phone);
+    const phoneError = validatePhone(phone);
 
     const nameError = (!firstName || !surname) ? "Surname and first name are required." : validateName(name, "Student name");
     const idError = validateUserId(id_no, "Enrollment number");
     const passError = validatePassword(password);
+    if (!emailRegex.test(email) || email.length > 160) { removeUploadedFile(req.file); return res.status(400).json({ message: "Please enter a valid student email address." }); }
+    if (phoneError) { removeUploadedFile(req.file); return res.status(400).json({ message: phoneError }); }
     if (nameError || idError || passError) {
       removeUploadedFile(req.file);
       return res.status(400).json({ message: nameError || idError || passError });
@@ -622,11 +667,10 @@ router.post("/student", profileUpload.single("profilePhoto"), async (req, res) =
       return res.status(409).json({ message: `Enrollment number '${id_no}' is already in use.` });
     }
 
-    const email = `${id_no.toLowerCase()}@campuscore.edu`;
-    const emailTaken = await User.findOne({ email });
+    const emailTaken = await findUserByEmail(email);
     if (emailTaken) {
       removeUploadedFile(req.file);
-      return res.status(409).json({ message: "The generated institutional email already exists." });
+      return res.status(409).json({ message: "This email address is already in use." });
     }
 
     const year = calculateYear(semester);
@@ -638,6 +682,7 @@ router.post("/student", profileUpload.single("profilePhoto"), async (req, res) =
       lastName,
       id_no,
       email,
+      phone,
       password: await bcrypt.hash(password, 10),
       role: "student",
       division: "",
@@ -653,6 +698,7 @@ router.post("/student", profileUpload.single("profilePhoto"), async (req, res) =
     res.status(201).json({ message: "Student enrolled successfully.", student: { ...student.toObject(), password: undefined } });
   } catch (error) {
     removeUploadedFile(req.file);
+    if (error?.code === 11000) return res.status(409).json({ message: "This email address or enrollment number is already in use." });
     console.error("Create Student:", error);
     res.status(500).json({ message: "Failed to enroll student." });
   }
@@ -682,14 +728,23 @@ router.put("/student/:id", profileUpload.single("profilePhoto"), async (req, res
     const student = await User.findOne({ _id: req.params.id, role: "student" });
     if (!student) { removeUploadedFile(req.file); return res.status(404).json({ message: "Student not found." }); }
 
-    const name = clean(req.body.name);
+    const surname = req.body.surname !== undefined ? clean(req.body.surname).toUpperCase() : student.surname;
+    const firstName = req.body.firstName !== undefined ? clean(req.body.firstName).toUpperCase() : student.firstName;
+    const secondName = req.body.secondName !== undefined ? clean(req.body.secondName).toUpperCase() : student.secondName;
+    const name = [surname, firstName, secondName].filter(Boolean).join(" ") || clean(req.body.name || student.name).toUpperCase();
     const id_no = clean(req.body.id_no);
     const courseName = clean(req.body.course);
     const semester = Number(req.body.semester);
+    const email = clean(req.body.email).toLowerCase() || student.email;
+    const phone = req.body.phone === undefined ? (student.phone || "") : clean(req.body.phone);
+    const phoneError = validatePhone(phone);
 
-    const nameError = validateName(name, "Student name");
+    const nameError = (!firstName || !surname) ? "Surname and first name are required." : validateName(name, "Student name");
     const idError = validateUserId(id_no, "Enrollment number");
     if (nameError || idError) { removeUploadedFile(req.file); return res.status(400).json({ message: nameError || idError }); }
+    if (!emailRegex.test(email) || email.length > 160) { removeUploadedFile(req.file); return res.status(400).json({ message: "Please enter a valid student email address." }); }
+    if (phoneError) { removeUploadedFile(req.file); return res.status(400).json({ message: phoneError }); }
+    if (await findUserByEmail(email, student._id)) { removeUploadedFile(req.file); return res.status(409).json({ message: "This email address is already in use." }); }
 
     const course = await getCourseByName(courseName);
     if (!course) { removeUploadedFile(req.file); return res.status(400).json({ message: "Selected course does not exist." }); }
@@ -703,20 +758,25 @@ router.put("/student/:id", profileUpload.single("profilePhoto"), async (req, res
     const duplicate = await User.findOne({ id_no, _id: { $ne: student._id } });
     if (duplicate) { removeUploadedFile(req.file); return res.status(409).json({ message: "This enrollment number is already used by another user." }); }
 
+    student.surname = surname;
+    student.firstName = firstName;
+    student.secondName = secondName;
     student.name = name;
     student.id_no = id_no;
+    student.email = email;
+    student.phone = phone;
     student.course = course.courseName;
     student.department = course.department?.departmentName || course.courseName;
     student.departmentId = course.department?._id || null;
     student.semester = semester;
     student.year = calculateYear(semester);
-    student.email = `${id_no.toLowerCase()}@campuscore.edu`;
     if (req.file) student.profilePhoto = `/uploads/${req.file.filename}`;
     await student.save();
 
     res.json({ message: "Student record updated successfully.", student: { ...student.toObject(), password: undefined } });
   } catch (error) {
     removeUploadedFile(req.file);
+    if (error?.code === 11000) return res.status(409).json({ message: "This email address or enrollment number is already in use." });
     console.error("Update Student:", error);
     res.status(500).json({ message: "Failed to update student record." });
   }

@@ -721,53 +721,40 @@ const handleSaveCourseProgress = async (tracker) => {
   // Profile Update Handler
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
-
     const email = profileForm.email.trim().toLowerCase();
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      alert("Validation Error: Please enter a valid email address.");
-      return;
-    }
-
-    if (profileForm.newPassword) {
-      if (!profileForm.currentPassword) {
-        alert("Current password is required to change your password.");
-        return;
-      }
-      if (profileForm.newPassword.length < 6 || profileForm.newPassword.length > 100) {
-        alert("New password must be 6–100 characters.");
-        return;
-      }
-      if (profileForm.newPassword !== profileForm.newPassword.trim()) {
-        alert("Password cannot start or end with spaces.");
-        return;
-      }
-      if (profileForm.newPassword !== profileForm.confirmPassword) {
-        alert("New password and confirm password do not match.");
-        return;
-      }
-    }
-
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return alert("Please enter a valid email address.");
     try {
-      const res = await axios.put(
-        "http://localhost:5000/api/auth/update-profile",
-        {
-          email,
-          currentPassword: profileForm.currentPassword,
-          newPassword: profileForm.newPassword,
-        },
-        authConfig
-      );
-      alert(res.data.message || "Profile and password updated successfully! ✨");
-      setProfileView(true);
-      const updatedUser = { ...user, name: res.data.user.name, email: res.data.user.email };
-      setUser(updatedUser);
-      localStorage.setItem("user", JSON.stringify(updatedUser));
+      if (email !== String(user?.email || "").toLowerCase()) {
+        await axios.post("http://localhost:5000/api/auth/email/request-otp", { email }, authConfig);
+        const otp = window.prompt("An OTP was sent to your new email. Enter the 6-digit OTP to confirm the email change:");
+        if (!otp) return;
+        const verified = await axios.post("http://localhost:5000/api/auth/email/verify-otp", { otp: otp.trim() }, authConfig);
+        const updatedUser = { ...user, email: verified.data.user.email };
+        setUser(updatedUser); localStorage.setItem("user", JSON.stringify(updatedUser));
+        setProfileForm((prev) => ({ ...prev, email: verified.data.user.email }));
+        alert("Email verified and updated successfully.");
+      }
+      if (profileForm.newPassword) {
+        if (!profileForm.currentPassword) return alert("Current password is required to change your password.");
+        if (profileForm.newPassword !== profileForm.confirmPassword) return alert("New password and confirmation do not match.");
+        await axios.post("http://localhost:5000/api/auth/change-password", { currentPassword: profileForm.currentPassword, newPassword: profileForm.newPassword, confirmPassword: profileForm.confirmPassword }, authConfig);
+        alert("Password changed successfully.");
+      }
       setProfileForm((prev) => ({ ...prev, currentPassword: "", newPassword: "", confirmPassword: "" }));
-      setActiveModal(null);
-    } catch (err) {
-      alert(err.response?.data?.message || "Failed to update profile");
-    }
+      setProfileView(true); setActiveModal(null);
+    } catch (err) { alert(err.response?.data?.message || "Failed to update account settings."); }
+  };
+
+  const handleProfilePhotoUpload = async (file) => {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) return alert("Choose a JPG, PNG or WEBP image up to 5 MB.");
+    const body = new FormData(); body.append("profilePhoto", file);
+    try {
+      const res = await axios.post("http://localhost:5000/api/auth/profile-photo", body, { headers: { Authorization: `Bearer ${token}`, "Content-Type": "multipart/form-data" } });
+      const updatedUser = { ...user, profilePhoto: res.data.user.profilePhoto };
+      setUser(updatedUser); localStorage.setItem("user", JSON.stringify(updatedUser));
+      alert("Profile photo updated successfully.");
+    } catch (err) { alert(err.response?.data?.message || "Profile photo upload failed."); }
   };
 
   const handleLogout = () => {
@@ -2254,6 +2241,7 @@ const unitDone = (unit.subUnits || []).filter(
               <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-purple-100 bg-gray-100 flex items-center justify-center text-2xl font-bold text-purple-700">
                 {user?.profilePhoto ? <img src={`http://localhost:5000${user.profilePhoto}`} alt="Faculty profile" className="w-full h-full object-cover" /> : (user?.name ? user.name.charAt(0).toUpperCase() : "T")}
               </div>
+              <label className="mt-2 cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-50">Update profile photo<input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { handleProfilePhotoUpload(e.target.files?.[0]); e.target.value = ""; }} /></label>
               <p className="font-bold text-gray-800 mt-3">{user?.name || "Faculty"}</p>
               <span className="text-xs bg-purple-100 text-purple-700 px-3 py-1 rounded-full mt-1">Teacher</span>
             </div>

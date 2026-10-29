@@ -58,7 +58,9 @@ export default function Login() {
     email: "",
     newPassword: "",
     confirmPassword: "",
+    otp: "",
   });
+  const [forgotStep, setForgotStep] = useState(1);
   const [forgotLoading, setForgotLoading] = useState(false);
 
   useEffect(() => {
@@ -108,58 +110,31 @@ export default function Login() {
 
   const handleForgotPassword = async (e) => {
     e.preventDefault();
-
     const email = forgotForm.email.trim().toLowerCase();
-    const newPassword = forgotForm.newPassword;
-
-    if (forgotForm.id_no.trim().length < 3) {
-      alert("Please enter a valid ID.");
-      return;
-    }
-
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      alert("Please enter a valid email address.");
-      return;
-    }
-
-    if (
-      newPassword.length < 6 ||
-      newPassword.length > 100 ||
-      !newPassword.trim()
-    ) {
-      alert("New password must be 6–100 characters.");
-      return;
-    }
-
-    if (newPassword !== forgotForm.confirmPassword) {
-      alert("New password and confirm password do not match.");
-      return;
-    }
-
+    const id = forgotForm.id_no.trim();
     try {
       setForgotLoading(true);
-
-      const res = await axios.post(`${API}/auth/forgot-password`, {
-        id_no: forgotForm.id_no.trim(),
-        email,
-        newPassword,
-      });
-
-      alert(res.data.message || "Password reset successfully.");
-
-      setForgotForm({
-        id_no: "",
-        email: "",
-        newPassword: "",
-        confirmPassword: "",
-      });
-
-      setShowForgot(false);
-    } catch (err) {
-      alert(err.response?.data?.message || "Unable to reset password.");
-    } finally {
-      setForgotLoading(false);
-    }
+      if (forgotStep === 1) {
+        if (id.length < 3 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return alert("Enter a valid ID and registered email address.");
+        const res = await axios.post(`${API}/auth/forgot-password/request-otp`, { id_no: id, email, role });
+        alert(res.data.message || "OTP sent to your registered email.");
+        setForgotStep(2);
+      } else if (forgotStep === 2) {
+        if (!/^\d{6}$/.test(forgotForm.otp)) return alert("Enter the 6-digit OTP.");
+        const res = await axios.post(`${API}/auth/forgot-password/verify-otp`, { id_no: id, email, role, otp: forgotForm.otp });
+        alert(res.data.message || "OTP verified.");
+        setForgotStep(3);
+      } else {
+        const newPassword = forgotForm.newPassword;
+        if (newPassword.length < 8 || newPassword.length > 100 || !/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[^A-Za-z0-9]/.test(newPassword) || newPassword !== newPassword.trim()) return alert("Password must be 8–100 characters, include uppercase, lowercase and a special character, and have no leading/trailing spaces.");
+        if (newPassword !== forgotForm.confirmPassword) return alert("Passwords do not match.");
+        const res = await axios.post(`${API}/auth/forgot-password/reset`, { id_no: id, email, role, newPassword, confirmPassword: forgotForm.confirmPassword });
+        alert(res.data.message || "Password reset successfully.");
+        setForgotForm({ id_no: "", email: "", newPassword: "", confirmPassword: "", otp: "" });
+        setForgotStep(1); setShowForgot(false);
+      }
+    } catch (err) { alert(err.response?.data?.message || "Unable to complete password recovery."); }
+    finally { setForgotLoading(false); }
   };
 
   return (
@@ -344,67 +319,34 @@ export default function Login() {
               <button
                 type="button"
                 className="close-modal"
-                onClick={() => setShowForgot(false)}
+                onClick={() => { setShowForgot(false); setForgotStep(1); setForgotForm({ id_no: "", email: "", newPassword: "", confirmPassword: "", otp: "" }); }}
               >
                 ×
               </button>
             </div>
 
             <form onSubmit={handleForgotPassword}>
-              <input
-                value={forgotForm.id_no}
-                onChange={(e) =>
-                  setForgotForm({ ...forgotForm, id_no: e.target.value })
-                }
-                placeholder={config.idLabel}
-                required
-              />
-
-              <input
-                type="email"
-                value={forgotForm.email}
-                onChange={(e) =>
-                  setForgotForm({ ...forgotForm, email: e.target.value })
-                }
-                placeholder="Registered Email"
-                required
-              />
-
-              <input
-                type="password"
-                value={forgotForm.newPassword}
-                onChange={(e) =>
-                  setForgotForm({
-                    ...forgotForm,
-                    newPassword: e.target.value,
-                  })
-                }
-                placeholder="New Password"
-                minLength={6}
-                required
-              />
-
-              <input
-                type="password"
-                value={forgotForm.confirmPassword}
-                onChange={(e) =>
-                  setForgotForm({
-                    ...forgotForm,
-                    confirmPassword: e.target.value,
-                  })
-                }
-                placeholder="Confirm New Password"
-                minLength={6}
-                required
-              />
+              {forgotStep === 1 && <>
+                <input value={forgotForm.id_no} onChange={(e) => setForgotForm({ ...forgotForm, id_no: e.target.value })} placeholder={config.idLabel} required />
+                <input type="email" value={forgotForm.email} onChange={(e) => setForgotForm({ ...forgotForm, email: e.target.value })} placeholder="Registered Email" required />
+              </>}
+              {forgotStep === 2 && <>
+                <p className="forgot-step-note">Enter the 6-digit OTP sent to {forgotForm.email}.</p>
+                <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}" value={forgotForm.otp} onChange={(e) => setForgotForm({ ...forgotForm, otp: e.target.value.replace(/\D/g, "").slice(0, 6) })} placeholder="6-digit OTP" required />
+              </>}
+              {forgotStep === 3 && <>
+                <input type="password" autoComplete="new-password" value={forgotForm.newPassword} onChange={(e) => setForgotForm({ ...forgotForm, newPassword: e.target.value })} placeholder="New Password (8+ chars, uppercase, lowercase, symbol)" minLength={8} maxLength={100} required />
+                <input type="password" autoComplete="new-password" value={forgotForm.confirmPassword} onChange={(e) => setForgotForm({ ...forgotForm, confirmPassword: e.target.value })} placeholder="Confirm New Password" minLength={8} maxLength={100} required />
+              </>}
 
               <button
                 type="submit"
                 disabled={forgotLoading}
                 style={{ backgroundColor: config.color }}
               >
-                {forgotLoading ? "Resetting..." : "Reset Password"}
+                {forgotLoading ? "Please wait..." : forgotStep === 1 ? "Send OTP" : forgotStep === 2 ? "Verify OTP" : "Reset Password"}
               </button>
+              {forgotStep === 2 && <button type="button" className="forgot-back-button" onClick={() => setForgotStep(1)} disabled={forgotLoading}>Back</button>}
             </form>
           </div>
         </div>

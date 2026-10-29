@@ -87,3 +87,26 @@ const sendHelpdeskAssignmentEmail = async ({ staff, request }) => {
 };
 
 module.exports = { sendHelpdeskAssignmentEmail };
+
+const sendAccountOtpEmail = async ({ to, otp, purpose }) => {
+  const apiKey = process.env.BREVO_API_KEY;
+  const from = process.env.HELPDESK_FROM_EMAIL;
+  if (!apiKey || !from) throw new Error("Email service is not configured. Set BREVO_API_KEY and HELPDESK_FROM_EMAIL in backend .env.");
+  const email = String(to || "").trim().toLowerCase();
+  if (!email) throw new Error("Recipient email is missing.");
+  const isReset = purpose === "password-reset";
+  const subject = isReset ? "CampusCore password reset OTP" : "Verify your new CampusCore email";
+  const title = isReset ? "Password reset verification" : "Email change verification";
+  const html = `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937;max-width:600px;margin:0 auto"><h2 style="color:#1d4ed8">CampusCore</h2><p>${title}</p><p>Your one-time verification code is:</p><p style="font-size:30px;font-weight:700;letter-spacing:7px;background:#f3f4f6;padding:14px;border-radius:8px;display:inline-block">${otp}</p><p>This code expires in 10 minutes and can be used only once. Do not share it with anyone.</p></div>`;
+  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: { accept: "application/json", "api-key": apiKey, "content-type": "application/json" },
+    body: JSON.stringify({ sender: { name: "CampusCore", email: from }, to: [{ email }], subject, htmlContent: html }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Brevo email delivery failed (${response.status}): ${detail.slice(0, 250)}`);
+  }
+  return response.json();
+};
+module.exports.sendAccountOtpEmail = sendAccountOtpEmail;
