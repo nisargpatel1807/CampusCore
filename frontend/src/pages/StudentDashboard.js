@@ -485,36 +485,20 @@ if (res.data.studentInfo) {
 
 
   // Quiz Execution Handlers
-  const handleStartQuiz = (quiz) => {
-    if (quiz.hasAttempted) {
-      alert("You have already completed this quiz.");
-      return;
-    }
-
-    if (quiz.isNotOpen) {
-      alert(`This quiz opens on ${new Date(quiz.openDate || quiz.createdAt).toLocaleString()}.`);
-      return;
-    }
-    if (quiz.isExpired) {
-      alert("This quiz is already closed.");
-      return;
-    }
-
-    if (!Array.isArray(quiz.questions) || quiz.questions.length === 0) {
-      alert("This quiz has no questions available.");
-      return;
-    }
-
-    const safeMinutes = Number(quiz.timeLimitMinutes);
-    const minutes = Number.isInteger(safeMinutes) && safeMinutes >= 1 && safeMinutes <= 180
-      ? safeMinutes
-      : 10;
-
-    setActiveQuiz(quiz);
-    setCurrentQuestionIndex(0);
-    setSelectedAnswers({});
-    setQuizTimerSeconds(minutes * 60);
-    setActiveModal("takeQuiz");
+  const handleStartQuiz = async (quiz) => {
+    if (quiz.hasAttempted) return alert("You have already completed this quiz.");
+    if (quiz.isNotOpen) return alert(`This quiz opens on ${new Date(quiz.openDate || quiz.createdAt).toLocaleString()}.`);
+    if (quiz.isExpired) return alert("This quiz is already closed.");
+    try {
+      const res = await axios.post(`http://localhost:5000/api/student/quizzes/${quiz._id}/start`, {}, authConfig);
+      const started = res.data;
+      if (!Array.isArray(started.questions) || !started.questions.length) return alert("This quiz has no questions available.");
+      setActiveQuiz({ _id: quiz._id, title: started.title, questions: started.questions });
+      setCurrentQuestionIndex(0);
+      setSelectedAnswers({});
+      setQuizTimerSeconds(Number(started.remainingSeconds) || Number(quiz.timeLimitMinutes || 10) * 60);
+      setActiveModal("takeQuiz");
+    } catch (err) { alert(err.response?.data?.message || "Unable to start quiz."); }
   };
 
   const handleSelectAnswer = (qIndex, optionIndex) => {
@@ -1520,7 +1504,7 @@ if (res.data.studentInfo) {
                         onClick={() => handleStartQuiz(q)}
                         className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg transition"
                       >
-                        Start Quiz ⏱️
+                        {q.hasInProgress ? "Resume Quiz ↻" : "Start Quiz ⏱️"}
                       </button>
                     )}
                   </div>

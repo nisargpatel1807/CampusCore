@@ -104,7 +104,10 @@ export default function AdminResultPanel({ courses = [], onClose }) {
           status: statusFilter,
         },
       });
-      setList(response.data?.results || []);
+      // Defensive UI filter: never show legacy rows whose Subject reference
+      // is missing or no longer resolves to a real Subject document.
+      const rows = response.data?.results || [];
+      setList(rows.filter((row) => row.subject && (row.subject.subjectCode || row.subject.subjectName)));
     } catch (error) {
       alert(error.response?.data?.message || "Failed to load results.");
     } finally {

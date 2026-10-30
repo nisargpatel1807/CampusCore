@@ -57,12 +57,32 @@ const gradeFromPercentage = (percentage, passingPercent = 40) => {
 };
 
 const calculateMarks = ({ cec, midterm, external, scheme }) => {
-  const components = [cec, midterm, external];
-  const hasMissing = components.some((v) => v === null || v === undefined);
-  const maxTotal = round2(Number(scheme.cecMax) + Number(scheme.midtermMax) + Number(scheme.externalMax));
+  // Raw marks are converted independently to their configured contribution
+  // in the final 100-mark result. Example: 40/50 midterm * 20 = 16.
+  const cecMax = Number(scheme.cecMax || 0);
+  const midtermMax = Number(scheme.midtermMax || 0);
+  const externalMax = Number(scheme.externalMax || 0);
+  const cecWeight = Number(scheme.cecWeight ?? 30);
+  const midtermWeight = Number(scheme.midtermWeight ?? 20);
+  const externalWeight = Number(scheme.externalWeight ?? 50);
+  const maxTotal = round2(cecWeight + midtermWeight + externalWeight);
 
+  const cecWeighted = cec === null || cec === undefined
+    ? null
+    : (cecMax > 0 ? round2((Number(cec) / cecMax) * cecWeight) : 0);
+  const midtermWeighted = midterm === null || midterm === undefined
+    ? null
+    : (midtermMax > 0 ? round2((Number(midterm) / midtermMax) * midtermWeight) : 0);
+  const externalWeighted = external === null || external === undefined
+    ? null
+    : (externalMax > 0 ? round2((Number(external) / externalMax) * externalWeight) : 0);
+
+  const hasMissing = [cec, midterm, external].some((v) => v === null || v === undefined);
   if (hasMissing) {
     return {
+      cecWeighted,
+      midtermWeighted,
+      externalWeighted,
       total: null,
       maxTotal,
       percentage: null,
@@ -73,11 +93,14 @@ const calculateMarks = ({ cec, midterm, external, scheme }) => {
     };
   }
 
-  const total = round2(cec + midterm + external);
+  const total = round2(cecWeighted + midtermWeighted + externalWeighted);
   const percentage = maxTotal > 0 ? round2((total / maxTotal) * 100) : 0;
   const gradeData = gradeFromPercentage(percentage, scheme.passingPercent);
 
   return {
+    cecWeighted,
+    midtermWeighted,
+    externalWeighted,
     total,
     maxTotal,
     percentage,
@@ -264,21 +287,25 @@ router.post("/schemes", requireRole("admin"), async (req, res) => {
     const courseId = clean(req.body.courseId);
     const semester = Number(req.body.semester);
     const academicYear = clean(req.body.academicYear);
-    const cecMax = num(req.body.cecMax);
-    const midtermMax = num(req.body.midtermMax);
-    const externalMax = num(req.body.externalMax);
+    const cecMax = num(req.body.cecMax ?? 30);
+    const midtermMax = num(req.body.midtermMax ?? 50);
+    const externalMax = num(req.body.externalMax ?? 70);
+    const cecWeight = num(req.body.cecWeight ?? 30);
+    const midtermWeight = num(req.body.midtermWeight ?? 20);
+    const externalWeight = num(req.body.externalWeight ?? 50);
     const passingPercent = req.body.passingPercent === undefined || req.body.passingPercent === "" ? 40 : num(req.body.passingPercent);
 
     if (!mongoose.isValidObjectId(courseId)) return res.status(400).json({ message: "Valid course is required." });
     if (!Number.isInteger(semester) || semester < 1 || semester > 20) return res.status(400).json({ message: "Valid semester is required." });
     if (!academicYear) return res.status(400).json({ message: "Academic year is required." });
-    if ([cecMax, midtermMax, externalMax, passingPercent].some((v) => v === null || Number.isNaN(v))) return res.status(400).json({ message: "Marks and passing percentage must be valid numbers." });
-    if (cecMax < 0 || midtermMax < 0 || externalMax < 0 || cecMax + midtermMax + externalMax <= 0) return res.status(400).json({ message: "Assessment maxima are invalid." });
+    if ([cecMax, midtermMax, externalMax, cecWeight, midtermWeight, externalWeight, passingPercent].some((v) => v === null || Number.isNaN(v))) return res.status(400).json({ message: "Assessment maxima, weights and passing percentage must be valid numbers." });
+    if (cecMax <= 0 || midtermMax <= 0 || externalMax <= 0) return res.status(400).json({ message: "Raw assessment maxima must be greater than zero." });
+    if ([cecWeight, midtermWeight, externalWeight].some((v) => v < 0) || round2(cecWeight + midtermWeight + externalWeight) !== 100) return res.status(400).json({ message: "CEC, Midterm and External contribution weights must add up to exactly 100." });
     if (passingPercent < 0 || passingPercent > 100) return res.status(400).json({ message: "Passing percentage must be 0–100." });
 
     const scheme = await AssessmentScheme.findOneAndUpdate(
       { course: courseId, semester, academicYear },
-      { $set: { cecMax, midtermMax, externalMax, passingPercent, active: true } },
+      { $set: { cecMax, midtermMax, externalMax, cecWeight, midtermWeight, externalWeight, passingPercent, active: true } },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     res.json({ message: "Assessment scheme saved successfully.", scheme });
@@ -514,6 +541,7 @@ router.post("/import", requireRole("admin"), upload.single("file"), async (req, 
           rowNo: r.rowNo, studentId: r.student.id_no, studentName: r.student.name,
           subjectCode: r.subject.subjectCode, subjectName: r.subject.subjectName,
           credit: r.credit, cec: r.cec, midterm: r.midterm, external: r.external,
+          cecWeighted: r.cecWeighted, midtermWeighted: r.midtermWeighted, externalWeighted: r.externalWeighted,
           total: r.total, maxTotal: r.maxTotal, percentage: r.percentage,
           grade: r.grade, gradePoint: r.gradePoint, status: r.complete ? "Complete" : "CEC Pending",
         })),
@@ -530,6 +558,9 @@ router.post("/import", requireRole("admin"), upload.single("file"), async (req, 
             cec: r.cec,
             midterm: r.midterm,
             external: r.external,
+            cecWeighted: r.cecWeighted,
+            midtermWeighted: r.midtermWeighted,
+            externalWeighted: r.externalWeighted,
             total: r.total,
             maxTotal: r.maxTotal,
             percentage: r.percentage,
@@ -557,6 +588,7 @@ router.post("/import", requireRole("admin"), upload.single("file"), async (req, 
         rowNo: r.rowNo, studentId: r.student.id_no, studentName: r.student.name,
         subjectCode: r.subject.subjectCode, subjectName: r.subject.subjectName,
         credit: r.credit, cec: r.cec, midterm: r.midterm, external: r.external,
+        cecWeighted: r.cecWeighted, midtermWeighted: r.midtermWeighted, externalWeighted: r.externalWeighted,
         total: r.total, maxTotal: r.maxTotal, percentage: r.percentage,
         grade: r.grade, gradePoint: r.gradePoint, status: r.complete ? "Complete" : "CEC Pending",
       })),
@@ -576,8 +608,27 @@ router.get("/admin", requireRole("admin"), async (req, res) => {
     if (req.query.subjectId && mongoose.isValidObjectId(req.query.subjectId)) filter.subject = req.query.subjectId;
     if (req.query.status && ["draft", "published"].includes(req.query.status)) filter.status = req.query.status;
 
+    // Only list results linked to real subjects belonging to this
+    // course + semester. This excludes legacy/orphaned subject references.
+    if (filter.course && filter.semester) {
+      const validSubjects = await Subject.find({
+        course: filter.course,
+        semester: filter.semester,
+      }).select("_id").lean();
+
+      const validSubjectIds = validSubjects.map((subject) => subject._id);
+      if (filter.subject) {
+        filter.subject = {
+          $in: validSubjectIds.filter((id) => String(id) === String(filter.subject)),
+        };
+      } else {
+        filter.subject = { $in: validSubjectIds };
+      }
+    }
+
     const rows = await populateResult(Result.find(filter).sort({ semester: 1, student: 1, subject: 1 })).lean();
-    res.json({ results: rows });
+    // Extra guard for dangling references that may have been deleted later.
+    res.json({ results: rows.filter((row) => row.subject && (row.subject.subjectCode || row.subject.subjectName)) });
   } catch (err) {
     console.error("Admin Result List Error:", err);
     res.status(400).json({ message: err.message || "Failed to load admin results." });
@@ -597,14 +648,34 @@ router.post("/publish", requireRole("admin"), async (req, res) => {
       return res.status(400).json({ message: "Course, semester and academic year are required to publish." });
     }
 
+    // Publish only rows whose Subject still exists and belongs to the
+    // selected course + semester. Legacy orphaned rows must never be published.
+    const validSubjects = await Subject.find({
+      course: filter.course,
+      semester: filter.semester,
+    }).select("_id").lean();
+    const validSubjectIds = validSubjects.map((subject) => subject._id);
+
+    if (req.body.subjectId && mongoose.isValidObjectId(req.body.subjectId)) {
+      filter.subject = {
+        $in: validSubjectIds.filter((id) => String(id) === String(req.body.subjectId)),
+      };
+    } else {
+      filter.subject = { $in: validSubjectIds };
+    }
+
+    if (!validSubjectIds.length || (Array.isArray(filter.subject.$in) && !filter.subject.$in.length)) {
+      return res.status(400).json({ message: "No valid subjects found for the selected course and semester. Nothing was published." });
+    }
+
     const pending = await Result.find(filter).select("cec midterm external total").lean();
-    if (!pending.length) return res.status(404).json({ message: "No draft result rows found for this selection." });
+    if (!pending.length) return res.status(404).json({ message: "No valid draft result rows found for this selection. Orphaned subject records were skipped." });
     const incomplete = pending.filter((r) => [r.cec, r.midterm, r.external, r.total].some((v) => v === null || v === undefined));
     if (incomplete.length) return res.status(400).json({ message: `${incomplete.length} result row(s) still have missing marks. CEC/marks complete karo before publish.` });
 
     const now = new Date();
     const result = await Result.updateMany(filter, { $set: { status: "published", publishedAt: now, publishedBy: req.user.id } });
-    res.json({ message: `${result.modifiedCount || 0} result row(s) published successfully.`, publishedCount: result.modifiedCount || 0 });
+    res.json({ message: `${result.modifiedCount || 0} valid subject result row(s) published successfully.`, publishedCount: result.modifiedCount || 0 });
   } catch (err) {
     console.error("Result Publish Error:", err);
     res.status(400).json({ message: err.message || "Failed to publish results." });

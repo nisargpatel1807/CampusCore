@@ -15,6 +15,9 @@ const quizSchema = new mongoose.Schema({
   openDate: { type: Date, required: true, default: Date.now },
   closeDate: { type: Date, required: true },
   dueDate: { type: Date, required: false },
+  shuffleQuestions: { type: Boolean, default: true },
+  shuffleOptions: { type: Boolean, default: true },
+  questionCount: { type: Number, default: 0, min: 0, max: 100 },
 }, { timestamps: true });
 
 module.exports = mongoose.models.Quiz || mongoose.model("Quiz", quizSchema);

@@ -17,6 +17,7 @@ const authMiddleware = require("../middleware/authMiddleware");
 const requireRole = require("../middleware/roleMiddleware");
 const CalendarEvent = require("../models/CalendarEvent");
 const Notification = require("../models/Notification");
+const { parseStructuredText, parseSheet } = require("../utils/mcqImport");
 
 const uploadDir = path.join(__dirname, "../uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -77,39 +78,15 @@ const getMySubject = async (subjectId, teacherId) => {
   return Subject.findOne({ _id: subjectId, teacher: teacherId }).populate("course", "courseName courseCode durationYears").lean();
 };
 
-// Match legacy student course values (for example "MCA") with the
-// configured Course record (for example "Master of Computer Application").
-const normalizeCourseValue = (value) => clean(value).toLowerCase().replace(/[^a-z0-9]/g, "");
-const courseInitials = (value) => clean(value)
-  .toLowerCase()
-  .split(/[^a-z0-9]+/)
-  .filter((word) => word && !["of", "the", "and", "in", "for"].includes(word))
-  .map((word) => word[0])
-  .join("");
-
 const studentMatchesSubject = (student, subject) => {
-  const courseName = clean(subject?.course?.courseName);
-  const courseCode = clean(subject?.course?.courseCode);
-  const studentValues = [student?.course, student?.department]
-    .map(normalizeCourseValue)
-    .filter(Boolean);
-  const expectedValues = [normalizeCourseValue(courseName), normalizeCourseValue(courseCode)]
-    .filter(Boolean);
-  const initials = normalizeCourseValue(courseInitials(courseName));
-  const courseMatches = studentValues.some((value) =>
-    expectedValues.includes(value) || (initials && value === initials)
-  );
-
-  const semesterMatches = Number(student?.semester) === Number(subject?.semester);
-  const allocatedDivisions = Array.isArray(subject?.divisions)
-    ? subject.divisions.map((value) => clean(value).toUpperCase()).filter(Boolean)
-    : [];
-  const studentDivision = clean(student?.division).toUpperCase();
-  const divisionMatches = allocatedDivisions.length === 0
-    ? true
-    : Boolean(studentDivision && allocatedDivisions.includes(studentDivision));
-
-  return courseMatches && semesterMatches && divisionMatches;
+  const courseName = clean(subject?.course?.courseName).toLowerCase();
+  const courseCode = clean(subject?.course?.courseCode).toLowerCase();
+  const studentCourse = clean(student.course).toLowerCase();
+  const studentDepartment = clean(student.department).toLowerCase();
+  return (studentCourse === courseName || studentCourse === courseCode || studentDepartment === courseName || studentDepartment === courseCode)
+    && Number(student.semester) === Number(subject.semester)
+    && Boolean(clean(student.division))
+    && (!Array.isArray(subject.divisions) || subject.divisions.length === 0 || subject.divisions.map(v => clean(v).toUpperCase()).includes(clean(student.division).toUpperCase()));
 };
 
 const validateQuestions = (questions) => {
@@ -202,11 +179,70 @@ router.put("/course-trackers/:subjectId/progress", async (req, res) => {
 });
 
 // ===================== QUIZZES =====================
+
+const quizImportUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const extension = path.extname(file.originalname || "").toLowerCase();
+    const allowed = [".csv", ".xlsx", ".xls", ".pdf", ".docx", ".txt"];
+    if (!allowed.includes(extension)) return cb(new Error("Supported formats: CSV, XLSX, XLS, PDF, DOCX, and TXT."));
+    cb(null, true);
+  },
+});
+
+router.post("/quizzes/import-questions", quizImportUpload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: "Select a supported file to import." });
+    const extension = path.extname(req.file.originalname || "").toLowerCase();
+    let result;
+    if ([".csv", ".xlsx", ".xls"].includes(extension)) {
+      result = parseSheet(req.file.buffer);
+    } else if (extension === ".docx") {
+      const mammoth = require("mammoth");
+      const extracted = await mammoth.extractRawText({ buffer: req.file.buffer });
+      result = parseStructuredText(extracted.value);
+    } else if (extension === ".pdf") {
+      const pdfParse = require("pdf-parse");
+      const extracted = await pdfParse(req.file.buffer);
+      if (!String(extracted.text || "").trim()) {
+        return res.status(422).json({ message: "No selectable text was found in this PDF. Scanned/image-only PDFs require OCR and cannot be imported in this version." });
+      }
+      result = parseStructuredText(extracted.text);
+    } else {
+      result = parseStructuredText(req.file.buffer.toString("utf8"));
+    }
+
+    if (!result.questions.length) {
+      return res.status(422).json({
+        message: "No valid MCQs were found. Use the documented question, A-D options, and Answer format.",
+        errors: result.errors.slice(0, 20),
+      });
+    }
+    if (result.questions.length > 100) {
+      return res.status(400).json({ message: "A maximum of 100 questions can be imported at a time." });
+    }
+    return res.json({
+      message: `${result.questions.length} questions extracted successfully. Review them before publishing.`,
+      questions: result.questions,
+      importedCount: result.questions.length,
+      skippedCount: result.errors.length,
+      errors: result.errors.slice(0, 20),
+    });
+  } catch (error) {
+    console.error("Quiz MCQ Import Error:", error);
+    return res.status(400).json({ message: error.message || "Unable to read the uploaded file." });
+  }
+});
+
+// Quiz document import: PDF and DOCX files are parsed in memory and never retained.
 router.post("/quizzes", async (req, res) => {
   try {
     const title = clean(req.body.title);
     const subjectId = clean(req.body.subject);
-    const dueDate = new Date(req.body.dueDate);
+    const openDate = new Date(req.body.openDate || Date.now());
+    const closeDate = new Date(req.body.closeDate || req.body.dueDate);
+    const dueDate = closeDate;
     const timeLimitMinutes = Number(req.body.timeLimitMinutes);
     const questions = req.body.questions;
 
@@ -224,16 +260,12 @@ router.post("/quizzes", async (req, res) => {
       });
     }
 
-    if (!req.body.dueDate || Number.isNaN(dueDate.getTime())) {
-      return res.status(400).json({
-        message: "Please provide a valid quiz due date."
-      });
+    const now = new Date();
+    if (!Number.isFinite(openDate.getTime()) || openDate < now) {
+      return res.status(400).json({ message: "Quiz open date/time cannot be in the past." });
     }
-
-    if (dueDate <= new Date()) {
-      return res.status(400).json({
-        message: "Quiz due date must be in the future."
-      });
+    if (!(req.body.closeDate || req.body.dueDate) || !Number.isFinite(closeDate.getTime()) || closeDate <= openDate) {
+      return res.status(400).json({ message: "Quiz close date/time must be after the open date/time." });
     }
 
     if (
@@ -266,6 +298,11 @@ router.post("/quizzes", async (req, res) => {
       teacher: req.user.id,
       timeLimitMinutes,
       dueDate,
+      openDate,
+      closeDate,
+      shuffleQuestions: req.body.shuffleQuestions !== false,
+      shuffleOptions: req.body.shuffleOptions !== false,
+      questionCount: Math.max(0, Math.min(cleanedQuestions.length, Number(req.body.questionCount) || 0)),
       questions: cleanedQuestions,
     });
 
@@ -373,7 +410,7 @@ router.post("/assignments", assignmentUpload.single("file"), async (req, res) =>
     role: "student",
     status: true
   })
-    .select("_id course department semester division")
+    .select("_id course department semester")
     .lean();
 
   const matchedStudents = students.filter((st) =>
@@ -453,7 +490,7 @@ router.post("/upload-material", materialUpload.single("file"), async (req, res) 
       fileType: req.file.mimetype,
       fileSize: req.file.size,
     });
-    const students = await User.find({ role:"student", status:true }).select("_id course department semester division").lean();
+    const students = await User.find({ role:"student", status:true }).select("_id course department semester").lean();
     const matchedStudents = students.filter(st=>studentMatchesSubject(st, subject));
     if(matchedStudents.length) await Notification.insertMany(matchedStudents.map(s=>({ recipient:s._id, recipientRole:"student", type:"MATERIAL", title:`New Material: ${title}`, message:`New study material was uploaded for ${subject.subjectName}.`, link:"/student/dashboard?open=materials", attachmentUrl:material.fileUrl, attachmentName:req.file.originalname })));
 
@@ -520,7 +557,7 @@ router.post("/attendance", async (req, res) => {
     }
 
     const students = await User.find({ _id: { $in: studentIds }, role: "student", status: true })
-      .select("course department semester division")
+      .select("course department semester")
       .lean();
     if (students.length !== studentIds.length) return res.status(400).json({ message: "Attendance includes an invalid or inactive student." });
     if (students.some((student) => !studentMatchesSubject(student, subject))) return res.status(400).json({ message: "Attendance includes a student outside this subject's course/semester." });
@@ -558,14 +595,14 @@ router.get("/attendance/history", async (req, res) => {
       const start = new Date(`${date}T00:00:00`);
       const end = new Date(`${date}T23:59:59.999`);
       const record = await Attendance.findOne({ subject: subjectId, teacher: req.user.id, date: { $gte: start, $lte: end } })
-        .populate({ path: "records.student", model: User, select: "name id_no course semester division" })
+        .populate({ path: "records.student", model: User, select: "name id_no course semester" })
         .lean();
       return res.json({ type: "byDate", date, records: record?.records || [] });
     }
 
     if (studentId) {
       if (!isObjectId(studentId)) return res.status(400).json({ message: "Invalid student ID." });
-      const student = await User.findOne({ _id: studentId, role: "student", status: true }).select("course department semester division name id_no").lean();
+      const student = await User.findOne({ _id: studentId, role: "student", status: true }).select("course department semester name id_no").lean();
       if (!student || !studentMatchesSubject(student, subject)) return res.status(400).json({ message: "Selected student does not belong to this subject." });
 
       const history = await Attendance.find({ subject: subjectId, teacher: req.user.id, "records.student": studentId })

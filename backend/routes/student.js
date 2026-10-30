@@ -192,108 +192,112 @@ router.get("/dashboard-data", authMiddleware, async (req, res) => {
   }
 });
 
-// GET AVAILABLE QUIZZES FOR CURRENT STUDENT
+// GET AVAILABLE QUIZZES FOR CURRENT STUDENT. Never send correct answers/questions here.
 router.get("/quizzes", authMiddleware, async (req, res) => {
   try {
     const student = await User.findById(req.user.id).lean();
-    if (!student || student.role !== "student") {
-      return res.status(403).json({ message: "Students only." });
-    }
-
-    const mySubjects = await studentSubjectQuery(student);
-    const subjectIds = mySubjects.map((s) => s._id);
-
+    if (!student || student.role !== "student") return res.status(403).json({ message: "Students only." });
+    const subjectIds = (await studentSubjectQuery(student)).map((s) => s._id);
     const quizzes = await Quiz.find({ subject: { $in: subjectIds } })
+      .select("title subject timeLimitMinutes openDate closeDate dueDate questionCount shuffleQuestions shuffleOptions createdAt")
       .populate("subject", "subjectName subjectCode")
-      .sort({ dueDate: 1, createdAt: -1 })
-      .lean();
-
-    const myAttempts = await QuizAttempt.find({ student: student._id }).lean();
-    const attemptedMap = {};
-    myAttempts.forEach((attempt) => {
-      attemptedMap[String(attempt.quiz)] = attempt;
-    });
-
+      .sort({ dueDate: 1, createdAt: -1 }).lean();
+    const attempts = await QuizAttempt.find({ student: student._id }).lean();
+    const map = new Map(attempts.map(a => [String(a.quiz), a]));
     const now = new Date();
-    const enriched = quizzes.map((quiz) => {
-      const attempted = attemptedMap[String(quiz._id)];
-      const closeDate = quiz.closeDate || quiz.dueDate;
-      const openDate = quiz.openDate || quiz.createdAt;
-      const isExpired = closeDate ? new Date(closeDate) < now : false;
-      const isNotOpen = openDate ? new Date(openDate) > now : false;
-      return {
-        ...quiz,
-        hasAttempted: Boolean(attempted),
-        attemptData: attempted || null,
-        isExpired,
-        isNotOpen,
-        isOpen: !isNotOpen && !isExpired,
-      };
-    });
-
-    res.status(200).json(enriched);
+    res.json(quizzes.map(quiz => {
+      const attempt = map.get(String(quiz._id));
+      const close = quiz.closeDate || quiz.dueDate;
+      const open = quiz.openDate || quiz.createdAt;
+      return { ...quiz, hasAttempted: Boolean(attempt && attempt.status !== "in_progress"),
+        hasInProgress: Boolean(attempt && attempt.status === "in_progress"),
+        attemptData: attempt ? { score: attempt.score, totalQuestions: attempt.totalQuestions, status: attempt.status } : null,
+        isExpired: close ? new Date(close) < now : false,
+        isNotOpen: open ? new Date(open) > now : false,
+        isOpen: !(open && new Date(open) > now) && !(close && new Date(close) < now) };
+    }));
   } catch (err) {
     console.error("Student Quizzes Fetch Error:", err);
     res.status(500).json({ message: "Failed to fetch student quizzes." });
   }
 });
 
-// SUBMIT QUIZ ATTEMPT
+// START / RESUME: create the randomized question and option order once on the server.
+router.post("/quizzes/:id/start", authMiddleware, async (req, res) => {
+  try {
+    const student = await User.findById(req.user.id).lean();
+    if (!student || student.role !== "student") return res.status(403).json({ message: "Students only." });
+    const quiz = await Quiz.findById(req.params.id).lean();
+    if (!quiz) return res.status(404).json({ message: "Quiz not found." });
+    const subjectIds = (await studentSubjectQuery(student)).map(s => String(s._id));
+    if (!subjectIds.includes(String(quiz.subject))) return res.status(403).json({ message: "You are not enrolled for this quiz subject." });
+    const now = new Date();
+    const opens = quiz.openDate || quiz.createdAt;
+    const closes = quiz.closeDate || quiz.dueDate;
+    if (opens && new Date(opens) > now) return res.status(400).json({ message: "This quiz is not open yet." });
+    if (closes && new Date(closes) < now) return res.status(400).json({ message: "This quiz is already closed." });
+
+    let attempt = await QuizAttempt.findOne({ quiz: quiz._id, student: student._id });
+    if (attempt && attempt.status !== "in_progress") return res.status(409).json({ message: "You have already submitted this quiz." });
+    if (!attempt) {
+      let questionOrder = quiz.questions.map((_, i) => i);
+      if (quiz.shuffleQuestions !== false) questionOrder.sort(() => Math.random() - 0.5);
+      const count = Number(quiz.questionCount) > 0 ? Math.min(Number(quiz.questionCount), questionOrder.length) : questionOrder.length;
+      questionOrder = questionOrder.slice(0, count);
+      const optionOrders = quiz.questions.map(() => {
+        const order = [0, 1, 2, 3];
+        if (quiz.shuffleOptions !== false) order.sort(() => Math.random() - 0.5);
+        return order;
+      });
+      const startedAt = now;
+      attempt = await QuizAttempt.create({ quiz: quiz._id, student: student._id, status: "in_progress", score: 0,
+        totalQuestions: questionOrder.length, answers: [], questionOrder, optionOrders, startedAt,
+        expiresAt: new Date(startedAt.getTime() + Number(quiz.timeLimitMinutes || 10) * 60000), submittedAt: null });
+    }
+    const questions = attempt.questionOrder.map(originalIndex => {
+      const q = quiz.questions[originalIndex];
+      const optionOrder = attempt.optionOrders[originalIndex] || [0,1,2,3];
+      return { questionText: q.questionText, options: optionOrder.map(i => q.options[i]) };
+    });
+    res.json({ quizId: String(quiz._id), title: quiz.title, questions, timeLimitMinutes: quiz.timeLimitMinutes,
+      remainingSeconds: attempt.expiresAt ? Math.max(0, Math.ceil((attempt.expiresAt - now) / 1000)) : Number(quiz.timeLimitMinutes || 10) * 60 });
+  } catch (err) {
+    console.error("Quiz Start Error:", err);
+    res.status(500).json({ message: "Failed to start quiz." });
+  }
+});
+
+// Evaluate only against the saved server-side mapping; client never receives answer keys.
 router.post("/quizzes/:id/submit", authMiddleware, async (req, res) => {
   try {
     const student = await User.findById(req.user.id).lean();
-    if (!student || student.role !== "student") {
-      return res.status(403).json({ message: "Students only." });
-    }
-
+    if (!student || student.role !== "student") return res.status(403).json({ message: "Students only." });
     const quiz = await Quiz.findById(req.params.id).lean();
     if (!quiz) return res.status(404).json({ message: "Quiz not found." });
-
-    const subjectIds = (await studentSubjectQuery(student)).map((s) => String(s._id));
-    if (!subjectIds.includes(String(quiz.subject))) {
-      return res.status(403).json({ message: "You are not enrolled for this quiz subject." });
-    }
-
-    if (quiz.dueDate && new Date(quiz.dueDate) < new Date()) {
-      return res.status(400).json({ message: "This quiz is already closed." });
-    }
-
-    const existing = await QuizAttempt.findOne({ quiz: quiz._id, student: student._id }).lean();
-    if (existing) {
-      return res.status(409).json({ message: "You have already submitted this quiz." });
-    }
-
+    const subjectIds = (await studentSubjectQuery(student)).map(s => String(s._id));
+    if (!subjectIds.includes(String(quiz.subject))) return res.status(403).json({ message: "You are not enrolled for this quiz subject." });
+    const attempt = await QuizAttempt.findOne({ quiz: quiz._id, student: student._id });
+    if (!attempt) return res.status(400).json({ message: "Please start the quiz first." });
+    if (attempt.status !== "in_progress") return res.status(409).json({ message: "You have already submitted this quiz." });
     const { userAnswers, reason = "normal" } = req.body;
-    if (!Array.isArray(userAnswers) || userAnswers.length !== quiz.questions.length) {
+    const order = attempt.questionOrder || [];
+    if (!Array.isArray(userAnswers) || userAnswers.length !== order.length || !userAnswers.every(a => Number.isInteger(a) && a >= -1 && a <= 3))
       return res.status(400).json({ message: "Invalid quiz answer data." });
-    }
-
-    const validAnswers = userAnswers.every(
-      (answer) => Number.isInteger(answer) && (answer === -1 || answer >= 0),
-    );
-    if (!validAnswers) {
-      return res.status(400).json({ message: "Quiz answers contain invalid values." });
-    }
-
     let score = 0;
-    quiz.questions.forEach((question, index) => {
-      const answer = userAnswers[index];
-      if (answer >= 0 && answer === question.correctAnswer) score += 1;
+    order.forEach((originalQuestionIndex, displayedIndex) => {
+      const displayedAnswer = userAnswers[displayedIndex];
+      if (displayedAnswer < 0) return;
+      const originalOptionIndex = (attempt.optionOrders[originalQuestionIndex] || [0,1,2,3])[displayedAnswer];
+      if (originalOptionIndex === quiz.questions[originalQuestionIndex].correctAnswer) score += 1;
     });
-
-    const attempt = await QuizAttempt.create({
-      quiz: quiz._id,
-      student: student._id,
-      score,
-      totalQuestions: quiz.questions.length,
-      answers: userAnswers,
-      submissionReason: ["normal", "timeout", "tab_switch"].includes(reason) ? reason : "normal",
-    });
-
-    res.status(201).json({
-      message: `Quiz submitted successfully! Score: ${score}/${quiz.questions.length}`,
-      attempt,
-    });
+    attempt.score = score;
+    attempt.totalQuestions = order.length;
+    attempt.answers = userAnswers;
+    attempt.status = "submitted";
+    attempt.submissionReason = ["normal", "timeout", "tab_switch"].includes(reason) ? reason : "normal";
+    attempt.submittedAt = new Date();
+    await attempt.save();
+    res.status(201).json({ message: `Quiz submitted successfully! Score: ${score}/${order.length}`, attempt: { score, totalQuestions: order.length, submissionReason: attempt.submissionReason } });
   } catch (err) {
     console.error("Quiz Submit Error:", err);
     res.status(500).json({ message: "Failed to evaluate and submit quiz." });

@@ -8,6 +8,14 @@ import TeacherCounselingPanel from "../components/TeacherCounselingPanel";
 import { useNavigate } from "react-router-dom";
 import "../index.css";
 
+const toLocalDateTimeInput = (date) => {
+  const d = new Date(date);
+  const offset = d.getTimezoneOffset();
+  return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 16);
+};
+const getCurrentLocalDateTime = () => toLocalDateTimeInput(new Date(Math.ceil(Date.now() / 60000) * 60000));
+const getDefaultQuizCloseDate = () => toLocalDateTimeInput(new Date(Date.now() + 60 * 60 * 1000));
+
 export default function TeacherDashboard() {
   const navigate = useNavigate();
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem("user") || "{}"));
@@ -80,9 +88,13 @@ export default function TeacherDashboard() {
   const [quizForm, setQuizForm] = useState({
     title: "",
     subject: "",
-    openDate: "",
-    closeDate: "",
-    timeLimitMinutes: 10,
+    openDate: getCurrentLocalDateTime(),
+    closeDate: getDefaultQuizCloseDate(),
+    timeLimitMinutes: "10",
+    shuffleQuestions: true,
+    shuffleOptions: true,
+    questionCount: 0,
+    bulkQuestionsText: "",
     questions: [
       { questionText: "", options: ["", "", "", ""], correctAnswer: 0 }
     ],
@@ -634,11 +646,70 @@ const handleSaveCourseProgress = async (tracker) => {
     setQuizForm((prev) => ({ ...prev, questions: updated }));
   };
 
+  const parseBulkQuestions = (raw) => {
+    const blocks = String(raw || "").split(/(?=^\s*Q\s*\d+\s*[.)-])/gim).map(v => v.trim()).filter(Boolean);
+    const parsed = [];
+    for (const block of blocks) {
+      const lines = block.split(/\r?\n/).map(v => v.trim()).filter(Boolean);
+      const questionLines = [];
+      const options = ["", "", "", ""];
+      let correctAnswer = -1;
+      for (const line of lines) {
+        const opt = line.match(/^([A-D])\s*[.)\-:]\s*(.+)$/i);
+        const answer = line.match(/^(?:correct\s*)?answer\s*[:\-]\s*([A-D])\b/i);
+        if (opt) options[opt[1].toUpperCase().charCodeAt(0) - 65] = opt[2].trim();
+        else if (answer) correctAnswer = answer[1].toUpperCase().charCodeAt(0) - 65;
+        else questionLines.push(line.replace(/^Q\s*\d+\s*[.)-]\s*/i, ""));
+      }
+      const questionText = questionLines.join(" ").trim();
+      if (questionText && options.every(Boolean) && correctAnswer >= 0) parsed.push({ questionText, options, correctAnswer });
+    }
+    return parsed;
+  };
+
+  const handleBulkPaste = () => {
+    const parsed = parseBulkQuestions(quizForm.bulkQuestionsText);
+    if (!parsed.length) return alert("Format check karo: Q1. Question, A-D options, Answer: A.");
+    if (quizForm.questions.length + parsed.length > 100) return alert("Maximum 100 questions allowed.");
+    setQuizForm(prev => ({ ...prev, questions: [...prev.questions.filter(q => q.questionText.trim() || q.options.some(Boolean)), ...parsed], bulkQuestionsText: "" }));
+    alert(`${parsed.length} questions added successfully.`);
+  };
+
+  const handleCsvImport = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const response = await axios.post(
+        "http://localhost:5000/api/teacher/quizzes/import-questions",
+        formData,
+        { headers: { Authorization: `Bearer ${token}`, "Content-Type": "multipart/form-data" } }
+      );
+      const imported = response.data.questions || [];
+      const currentQuestions = quizForm.questions.filter(q => q.questionText.trim() || q.options.some(Boolean));
+      if (currentQuestions.length + imported.length > 100) {
+        alert("Maximum 100 questions are allowed in one quiz.");
+        return;
+      }
+      setQuizForm(prev => ({ ...prev, questions: [...prev.questions.filter(q => q.questionText.trim() || q.options.some(Boolean)), ...imported] }));
+      const skipped = response.data.skippedCount || 0;
+      alert(`${response.data.importedCount} questions imported successfully.${skipped ? ` ${skipped} invalid entries were skipped.` : ""}`);
+    } catch (error) {
+      const data = error.response?.data;
+      const details = Array.isArray(data?.errors) && data.errors.length ? `\n\n${data.errors.slice(0, 5).join("\n")}` : "";
+      alert(`${data?.message || "Unable to import this file."}${details}`);
+    } finally {
+      event.target.value = "";
+    }
+  };
+
   const handleCreateQuiz = async (e) => {
     e.preventDefault();
     const title = quizForm.title.trim();
-    const openDate = new Date(quizForm.openDate || new Date());
+    const openDate = new Date(quizForm.openDate);
     const closeDate = new Date(quizForm.closeDate);
+    const now = new Date();
 
     if (title.length < 3 || title.length > 150) {
       alert("Quiz title must be between 3 and 150 characters.");
@@ -646,6 +717,10 @@ const handleSaveCourseProgress = async (tracker) => {
     }
     if (!quizForm.subject) {
       alert("Please select an allocated subject.");
+      return;
+    }
+    if (!quizForm.openDate || Number.isNaN(openDate.getTime()) || openDate < now) {
+      alert("Quiz open date/time cannot be in the past. Select today or a future date/time.");
       return;
     }
     if (!quizForm.closeDate || Number.isNaN(closeDate.getTime()) || closeDate <= openDate) {
@@ -681,6 +756,7 @@ const handleSaveCourseProgress = async (tracker) => {
       await axios.post("http://localhost:5000/api/teacher/quizzes", {
         ...quizForm,
         title,
+        dueDate: quizForm.closeDate,
         timeLimitMinutes: time,
         questions: quizForm.questions.map((q) => ({
           ...q,
@@ -693,9 +769,10 @@ const handleSaveCourseProgress = async (tracker) => {
       setQuizForm({
         title: "",
         subject: stats.subjects[0]?._id || "",
-        openDate: "",
-        closeDate: "",
-        timeLimitMinutes: 10,
+        openDate: getCurrentLocalDateTime(),
+        closeDate: getDefaultQuizCloseDate(),
+        timeLimitMinutes: "10",
+        shuffleQuestions: true, shuffleOptions: true, questionCount: 0, bulkQuestionsText: "",
         questions: [{ questionText: "", options: ["", "", "", ""], correctAnswer: 0 }],
       });
       setActiveModal("manageQuizzes");
@@ -1764,9 +1841,9 @@ const handleSaveCourseProgress = async (tracker) => {
                     setQuizForm({
                       title: "",
                       subject: stats.subjects[0]._id,
-                      openDate: "",
-                      closeDate: "",
-                      timeLimitMinutes: 10,
+                      openDate: getCurrentLocalDateTime(),
+                      closeDate: getDefaultQuizCloseDate(),
+                      timeLimitMinutes: "10",
                       questions: [{ questionText: "", options: ["", "", "", ""], correctAnswer: 0 }],
                     });
                     setActiveModal("createQuiz");
@@ -1856,8 +1933,9 @@ const handleSaveCourseProgress = async (tracker) => {
                   <input
                     required
                     type="datetime-local"
+                    min={getCurrentLocalDateTime()}
                     value={quizForm.openDate}
-                    onChange={(e) => setQuizForm({ ...quizForm, openDate: e.target.value })}
+                    onChange={(e) => setQuizForm({ ...quizForm, openDate: e.target.value, closeDate: quizForm.closeDate && quizForm.closeDate > e.target.value ? quizForm.closeDate : "" })}
                     className="w-full border rounded-lg p-2 text-xs outline-none focus:ring-2 focus:ring-purple-500"
                   />
                 </div>
@@ -1866,6 +1944,7 @@ const handleSaveCourseProgress = async (tracker) => {
                   <input
                     required
                     type="datetime-local"
+                    min={quizForm.openDate || getCurrentLocalDateTime()}
                     value={quizForm.closeDate}
                     onChange={(e) => setQuizForm({ ...quizForm, closeDate: e.target.value })}
                     className="w-full border rounded-lg p-2 text-xs outline-none focus:ring-2 focus:ring-purple-500"
@@ -1877,11 +1956,26 @@ const handleSaveCourseProgress = async (tracker) => {
                     required
                     type="number"
                     min="1"
-                    max="120"
+                    max="180"
                     value={quizForm.timeLimitMinutes}
-                    onChange={(e) => setQuizForm({ ...quizForm, timeLimitMinutes: Number(e.target.value) })}
+                    onChange={(e) => setQuizForm({ ...quizForm, timeLimitMinutes: e.target.value })}
                     className="w-full border rounded-lg p-2 text-xs outline-none focus:ring-2 focus:ring-purple-500"
                   />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-purple-200 bg-purple-50 p-4 space-y-3">
+                <h4 className="font-bold text-sm">Bulk MCQ Entry</h4>
+                <p className="text-xs text-gray-600">Supported formats: CSV, Excel (.xlsx, .xls), PDF (text-based), Word (.docx), and TXT. Each MCQ must contain a question, options A-D, and an Answer line. Scanned PDFs are not supported.</p>
+                <textarea rows={7} value={quizForm.bulkQuestionsText} onChange={e => setQuizForm(prev => ({ ...prev, bulkQuestionsText: e.target.value }))} placeholder={'Q1. What is DBMS?\nA. Database Management System\nB. Data Base Machine\nC. Digital Base\nD. None\nAnswer: A'} className="w-full border rounded-lg p-2 text-sm" />
+                <div className="flex flex-wrap items-center gap-3">
+                  <button type="button" onClick={handleBulkPaste} className="px-3 py-2 rounded-lg bg-purple-600 text-white text-xs font-bold">Add pasted questions</button>
+                  <label className="px-3 py-2 rounded-lg bg-white border text-xs font-bold cursor-pointer">Import MCQs (CSV, Excel, PDF, Word, TXT) <input type="file" accept=".csv,.xlsx,.xls,.pdf,.docx,.txt,text/csv,application/pdf" onChange={handleCsvImport} className="hidden" /></label>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-2 text-sm">
+                  <label className="flex gap-2 items-center"><input type="checkbox" checked={quizForm.shuffleQuestions} onChange={e => setQuizForm(p => ({...p, shuffleQuestions:e.target.checked}))}/> Shuffle questions</label>
+                  <label className="flex gap-2 items-center"><input type="checkbox" checked={quizForm.shuffleOptions} onChange={e => setQuizForm(p => ({...p, shuffleOptions:e.target.checked}))}/> Shuffle options</label>
+                  <label className="flex gap-2 items-center">Random questions (0 = all) <input type="number" min="0" max="100" value={quizForm.questionCount} onChange={e => setQuizForm(p => ({...p, questionCount:e.target.value === "" ? "" : Number(e.target.value)}))} className="w-20 border rounded p-1"/></label>
                 </div>
               </div>
 

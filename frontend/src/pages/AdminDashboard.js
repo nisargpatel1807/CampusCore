@@ -21,8 +21,13 @@ export default function AdminDashboard() {
     return `${yearIndex}${suffix} Year`;
   };
 
-  const getTodayStr = () => new Date().toISOString().split("T")[0];
-
+const getTodayStr = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
   const navigate = useNavigate();
   const location = useLocation();
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem("user") || "{}"));
@@ -525,9 +530,14 @@ const [departments, setDepartments] = useState([]);
 
     if (
       announcementForm.eventDate &&
-      Number.isNaN(new Date(announcementForm.eventDate).getTime())
+      Number.isNaN(new Date(`${announcementForm.eventDate}T00:00:00`).getTime())
     ) {
       return alert("Please select a valid event date.");
+    }
+
+    // Do not allow a Campus Notice event date earlier than today.
+    if (announcementForm.eventDate && announcementForm.eventDate < getTodayStr()) {
+      return alert("Past dates are not allowed. Please select today or a future date.");
     }
 
     if (
@@ -2805,13 +2815,20 @@ body.append(
                   </label>
                   <input
                     type="date"
+                    min={getTodayStr()}
                     value={announcementForm.eventDate}
-                    onChange={(e) =>
-                      setAnnouncementForm({
-                        ...announcementForm,
-                        eventDate: e.target.value,
-                      })
-                    }
+                    onChange={(e) => {
+                      const selectedDate = e.target.value;
+                      if (selectedDate && selectedDate < getTodayStr()) {
+                        alert("Past dates are not allowed. Please select today or a future date.");
+                        setAnnouncementForm((prev) => ({ ...prev, eventDate: "" }));
+                        return;
+                      }
+                      setAnnouncementForm((prev) => ({
+                        ...prev,
+                        eventDate: selectedDate,
+                      }));
+                    }}
                     className="w-full border rounded-lg p-2.5 text-sm"
                   />
                 </div>
