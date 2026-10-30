@@ -24,3 +24,22 @@
 .sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.55);
 }
+
+/* Global page scrolling fix: keep long pages scrollable in both study modes. */
+html,
+body,
+#root {
+  min-height: 100%;
+  height: auto !important;
+  overflow-y: auto !important;
+}
+
+html,
+body {
+  overflow-x: hidden;
+  overscroll-behavior-y: auto;
+}
+
+body {
+  position: relative;
+}

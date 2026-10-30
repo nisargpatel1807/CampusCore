@@ -757,10 +757,9 @@ router.post("/generate", authMiddleware, async (req, res) => {
       error
     );
 
+    const message = String(error?.message || "");
     return res.status(500).json({
-      message:
-        error.message ||
-        "Failed to generate study plan.",
+      message: message || "Failed to generate study plan.",
     });
   }
 });

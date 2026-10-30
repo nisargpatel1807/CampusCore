@@ -75,10 +75,29 @@ const populateAppointment = (query) =>
 // =========================================================
 router.get("/teachers", authMiddleware, requireRole("student"), async (req, res) => {
   try {
-    const teachers = await User.find({ role: "teacher", status: true })
+    const student = await User.findOne({
+      _id: req.user.id,
+      role: "student",
+      status: true,
+    }).select("department").lean();
+
+    if (!student) return res.status(403).json({ message: "Active student account required." });
+
+    const normalizeDepartment = (value) =>
+      clean(value).replace(/\s+/g, " ").toLowerCase();
+    const studentDepartment = normalizeDepartment(student.department);
+
+    if (!studentDepartment) return res.json([]);
+
+    const departmentTeachers = await User.find({ role: "teacher", status: true })
       .select("_id name id_no email department")
       .sort({ name: 1 })
       .lean();
+
+    // A student can request counseling only from faculty in the same department.
+    const teachers = departmentTeachers.filter(
+      (teacher) => normalizeDepartment(teacher.department) === studentDepartment
+    );
 
     res.json(teachers);
   } catch (error) {
@@ -180,6 +199,14 @@ router.post(
 
       if (!student) return res.status(403).json({ message: "Active student account required." });
       if (!teacher) return res.status(404).json({ message: "Teacher not found or inactive." });
+
+      const normalizeDepartment = (value) =>
+        clean(value).replace(/\s+/g, " ").toLowerCase();
+      if (normalizeDepartment(student.department) !== normalizeDepartment(teacher.department)) {
+        return res.status(403).json({
+          message: "You can request counseling only from a teacher in your own department.",
+        });
+      }
 
       const conflict = await CounselingAppointment.findOne(
         makeWindowQuery(teacher._id, requestedStart, requestedEnd)

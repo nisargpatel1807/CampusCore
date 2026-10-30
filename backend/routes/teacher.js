@@ -77,15 +77,39 @@ const getMySubject = async (subjectId, teacherId) => {
   return Subject.findOne({ _id: subjectId, teacher: teacherId }).populate("course", "courseName courseCode durationYears").lean();
 };
 
+// Match legacy student course values (for example "MCA") with the
+// configured Course record (for example "Master of Computer Application").
+const normalizeCourseValue = (value) => clean(value).toLowerCase().replace(/[^a-z0-9]/g, "");
+const courseInitials = (value) => clean(value)
+  .toLowerCase()
+  .split(/[^a-z0-9]+/)
+  .filter((word) => word && !["of", "the", "and", "in", "for"].includes(word))
+  .map((word) => word[0])
+  .join("");
+
 const studentMatchesSubject = (student, subject) => {
-  const courseName = clean(subject?.course?.courseName).toLowerCase();
-  const courseCode = clean(subject?.course?.courseCode).toLowerCase();
-  const studentCourse = clean(student.course).toLowerCase();
-  const studentDepartment = clean(student.department).toLowerCase();
-  return (studentCourse === courseName || studentCourse === courseCode || studentDepartment === courseName || studentDepartment === courseCode)
-    && Number(student.semester) === Number(subject.semester)
-    && Boolean(clean(student.division))
-    && (!Array.isArray(subject.divisions) || subject.divisions.length === 0 || subject.divisions.map(v => clean(v).toUpperCase()).includes(clean(student.division).toUpperCase()));
+  const courseName = clean(subject?.course?.courseName);
+  const courseCode = clean(subject?.course?.courseCode);
+  const studentValues = [student?.course, student?.department]
+    .map(normalizeCourseValue)
+    .filter(Boolean);
+  const expectedValues = [normalizeCourseValue(courseName), normalizeCourseValue(courseCode)]
+    .filter(Boolean);
+  const initials = normalizeCourseValue(courseInitials(courseName));
+  const courseMatches = studentValues.some((value) =>
+    expectedValues.includes(value) || (initials && value === initials)
+  );
+
+  const semesterMatches = Number(student?.semester) === Number(subject?.semester);
+  const allocatedDivisions = Array.isArray(subject?.divisions)
+    ? subject.divisions.map((value) => clean(value).toUpperCase()).filter(Boolean)
+    : [];
+  const studentDivision = clean(student?.division).toUpperCase();
+  const divisionMatches = allocatedDivisions.length === 0
+    ? true
+    : Boolean(studentDivision && allocatedDivisions.includes(studentDivision));
+
+  return courseMatches && semesterMatches && divisionMatches;
 };
 
 const validateQuestions = (questions) => {
@@ -349,7 +373,7 @@ router.post("/assignments", assignmentUpload.single("file"), async (req, res) =>
     role: "student",
     status: true
   })
-    .select("_id course department semester")
+    .select("_id course department semester division")
     .lean();
 
   const matchedStudents = students.filter((st) =>
@@ -429,7 +453,7 @@ router.post("/upload-material", materialUpload.single("file"), async (req, res) 
       fileType: req.file.mimetype,
       fileSize: req.file.size,
     });
-    const students = await User.find({ role:"student", status:true }).select("_id course department semester").lean();
+    const students = await User.find({ role:"student", status:true }).select("_id course department semester division").lean();
     const matchedStudents = students.filter(st=>studentMatchesSubject(st, subject));
     if(matchedStudents.length) await Notification.insertMany(matchedStudents.map(s=>({ recipient:s._id, recipientRole:"student", type:"MATERIAL", title:`New Material: ${title}`, message:`New study material was uploaded for ${subject.subjectName}.`, link:"/student/dashboard?open=materials", attachmentUrl:material.fileUrl, attachmentName:req.file.originalname })));
 
@@ -496,7 +520,7 @@ router.post("/attendance", async (req, res) => {
     }
 
     const students = await User.find({ _id: { $in: studentIds }, role: "student", status: true })
-      .select("course department semester")
+      .select("course department semester division")
       .lean();
     if (students.length !== studentIds.length) return res.status(400).json({ message: "Attendance includes an invalid or inactive student." });
     if (students.some((student) => !studentMatchesSubject(student, subject))) return res.status(400).json({ message: "Attendance includes a student outside this subject's course/semester." });
@@ -534,14 +558,14 @@ router.get("/attendance/history", async (req, res) => {
       const start = new Date(`${date}T00:00:00`);
       const end = new Date(`${date}T23:59:59.999`);
       const record = await Attendance.findOne({ subject: subjectId, teacher: req.user.id, date: { $gte: start, $lte: end } })
-        .populate({ path: "records.student", model: User, select: "name id_no course semester" })
+        .populate({ path: "records.student", model: User, select: "name id_no course semester division" })
         .lean();
       return res.json({ type: "byDate", date, records: record?.records || [] });
     }
 
     if (studentId) {
       if (!isObjectId(studentId)) return res.status(400).json({ message: "Invalid student ID." });
-      const student = await User.findOne({ _id: studentId, role: "student", status: true }).select("course department semester name id_no").lean();
+      const student = await User.findOne({ _id: studentId, role: "student", status: true }).select("course department semester division name id_no").lean();
       if (!student || !studentMatchesSubject(student, subject)) return res.status(400).json({ message: "Selected student does not belong to this subject." });
 
       const history = await Attendance.find({ subject: subjectId, teacher: req.user.id, "records.student": studentId })

@@ -136,13 +136,15 @@ export default function StudyPlanner() {
         if (currentPlan?.plan?.length) {
           setStudyPlan(currentPlan.plan);
           setMode(currentPlan.mode || "exam");
-          setStartDate(
-            currentPlan.planStartDate
-              ? new Date(currentPlan.planStartDate)
-                  .toISOString()
-                  .split("T")[0]
-              : today
-          );
+          // Keep the form anchored to today when an older saved plan is loaded.
+          // Convert using local calendar fields (toISOString can shift the date by timezone).
+          const savedStart = currentPlan.planStartDate
+            ? new Date(currentPlan.planStartDate)
+            : null;
+          const savedStartLocal = savedStart && !Number.isNaN(savedStart.getTime())
+            ? `${savedStart.getFullYear()}-${String(savedStart.getMonth() + 1).padStart(2, "0")}-${String(savedStart.getDate()).padStart(2, "0")}`
+            : today;
+          setStartDate(savedStartLocal < today ? today : savedStartLocal);
           setPlanDays(
             String(currentPlan.planDays || currentPlan.plan.length)
           );
@@ -420,7 +422,8 @@ export default function StudyPlanner() {
       console.error("Generate Study Plan Error:", error);
       alert(
         error.response?.data?.message ||
-          "Failed to prepare study plan."
+          error.message ||
+          "Failed to prepare study plan. Check the backend terminal for the Gemini API error."
       );
     } finally {
       setGenerating(false);
@@ -650,7 +653,7 @@ export default function StudyPlanner() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 font-sans">
+    <div className="min-h-screen h-auto w-full bg-gray-100 font-sans" style={{ minHeight: "100vh", height: "auto", overflowY: "visible" }}>
       <style>{`
         @media print {
           body * { visibility: hidden !important; }

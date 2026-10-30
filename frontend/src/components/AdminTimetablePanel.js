@@ -68,6 +68,26 @@ const errorMessage = (error, fallback) => {
   return data?.message || error?.message || fallback;
 };
 
+const normalizeCourseValue = (value) => String(value ?? "").trim().toLowerCase().replace(/\\s+/g, " ");
+
+const subjectBelongsToCourse = (subject, course) => {
+  if (!subject || !course) return false;
+  const subjectCourse = subject.course;
+  const subjectCourseId = subjectCourse && typeof subjectCourse === "object"
+    ? subjectCourse._id
+    : subjectCourse;
+  if (String(subjectCourseId || "") === String(course._id || "")) return true;
+
+  // Support older subject documents where course was stored as a name/code string.
+  const accepted = [course.courseName, course.courseCode]
+    .map(normalizeCourseValue)
+    .filter(Boolean);
+  const stored = subjectCourse && typeof subjectCourse === "object"
+    ? [subjectCourse.courseName, subjectCourse.courseCode].map(normalizeCourseValue)
+    : [normalizeCourseValue(subjectCourse)];
+  return stored.some((value) => value && accepted.includes(value));
+};
+
 const timeToMinutes = (value) => {
   const [h, m] = String(value || "").split(":").map(Number);
   return Number.isInteger(h) && Number.isInteger(m) ? h * 60 + m : 9999;
@@ -107,14 +127,30 @@ export default function AdminTimetablePanel({ onClose }) {
   const [editingRoom, setEditingRoom] = useState(false);
   const [editingClass, setEditingClass] = useState(false);
 
+  const selectedCourse = useMemo(
+    () => courses.find((course) => String(course._id) === String(courseFilter)),
+    [courses, courseFilter],
+  );
+
   const filteredSubjects = useMemo(() => {
-    const courseId = classForm.courseId || changeForm.courseId;
-    const semester = Number(classForm.courseId ? classForm.semester : changeForm.semester);
-    if (!courseId) return subjects;
+    if (!selectedCourse || !semesterFilter) return [];
     return subjects.filter(
-      (s) => String(s.course?._id || s.course) === String(courseId) && Number(s.semester) === semester,
+      (subject) =>
+        subjectBelongsToCourse(subject, selectedCourse) &&
+        Number(subject.semester) === Number(semesterFilter),
     );
-  }, [subjects, classForm.courseId, classForm.semester, changeForm.courseId, changeForm.semester]);
+  }, [subjects, selectedCourse, semesterFilter]);
+
+  const selectedDepartmentName = String(selectedCourse?.department?.departmentName || "").trim().toLowerCase();
+  const filteredTeachers = useMemo(() => {
+    if (!selectedCourse) return [];
+    const departmentName = String(selectedCourse.department?.departmentName || "").trim().toLowerCase();
+    const departmentCode = String(selectedCourse.department?.departmentCode || "").trim().toLowerCase();
+    return teachers.filter((teacher) => {
+      const teacherDepartment = String(teacher.department || "").trim().toLowerCase();
+      return teacherDepartment && (teacherDepartment === departmentName || teacherDepartment === departmentCode);
+    });
+  }, [teachers, selectedCourse]);
 
   const filterEntries = useMemo(() => {
     return entries
@@ -199,11 +235,28 @@ export default function AdminTimetablePanel({ onClose }) {
     setChangeForm((prev) => ({ ...prev, academicYear }));
   }, [academicYear]);
 
+  useEffect(() => {
+    setClassForm((prev) => ({
+      ...prev,
+      courseId: courseFilter || "",
+      semester: Number(semesterFilter || 1),
+      division: divisionFilter ? divisionFilter.toUpperCase() : "",
+      subjectId: "",
+    }));
+    setChangeForm((prev) => ({
+      ...prev,
+      courseId: courseFilter || "",
+      semester: Number(semesterFilter || 1),
+      division: divisionFilter ? divisionFilter.toUpperCase() : "",
+      subjectId: "",
+    }));
+  }, [courseFilter, semesterFilter, divisionFilter]);
+
   const resetClassForm = () => {
     const next = emptyClassForm(academicYear);
-    if (courseFilter) next.courseId = courseFilter;
-    if (semesterFilter) next.semester = Number(semesterFilter);
-    if (divisionFilter) next.division = divisionFilter.toUpperCase();
+    next.courseId = courseFilter || "";
+    next.semester = Number(semesterFilter || 1);
+    next.division = divisionFilter ? divisionFilter.toUpperCase() : "";
     setClassForm(next);
     setEditingClass(false);
   };
@@ -218,6 +271,14 @@ export default function AdminTimetablePanel({ onClose }) {
 
   const handleSaveClass = async (event) => {
     event.preventDefault();
+    if (!courseFilter || !semesterFilter || !divisionFilter) {
+      setMessage("Please select Course, Semester and Division from the filters at the top before adding a class.");
+      return;
+    }
+    if (classForm.teacherId && !filteredTeachers.some((teacher) => String(teacher._id) === String(classForm.teacherId))) {
+      setMessage("Selected teacher does not belong to the selected course department.");
+      return;
+    }
     try {
       setSaving(true);
       setMessage("");
@@ -227,9 +288,9 @@ export default function AdminTimetablePanel({ onClose }) {
         startTime: classForm.startTime,
         endTime: classForm.endTime,
         type: classForm.type,
-        courseId: classForm.courseId,
-        semester: Number(classForm.semester),
-        division: classForm.division.toUpperCase(),
+        courseId: courseFilter,
+        semester: Number(semesterFilter),
+        division: String(divisionFilter || "").toUpperCase(),
         subjectId: classForm.type === "Break" ? "" : classForm.subjectId,
         teacherId: classForm.teacherId || "",
         roomId: classForm.roomId || "",
@@ -252,6 +313,9 @@ export default function AdminTimetablePanel({ onClose }) {
   };
 
   const editClass = (entry) => {
+    setCourseFilter(entry.course?._id || entry.course || "");
+    setSemesterFilter(String(entry.semester || 1));
+    setDivisionFilter(String(entry.division || "A").toUpperCase());
     setClassForm({
       id: entry._id,
       academicYear: entry.academicYear,
@@ -451,14 +515,14 @@ export default function AdminTimetablePanel({ onClose }) {
             </div>
             <div>
               <label className="text-[10px] font-bold text-gray-600 block mb-1">Course Filter</label>
-              <select value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)} className="w-full border rounded-lg p-2 text-xs bg-white">
+              <select value={courseFilter} onChange={(e) => { setCourseFilter(e.target.value); setClassForm((prev) => ({ ...prev, teacherId: "", subjectId: "" })); }} className="w-full border rounded-lg p-2 text-xs bg-white">
                 <option value="">All Courses</option>
                 {courses.map((c) => <option key={c._id} value={c._id}>{c.courseName} ({c.courseCode})</option>)}
               </select>
             </div>
             <div>
               <label className="text-[10px] font-bold text-gray-600 block mb-1">Semester</label>
-              <select value={semesterFilter} onChange={(e) => setSemesterFilter(e.target.value)} className="w-full border rounded-lg p-2 text-xs bg-white">
+              <select value={semesterFilter} onChange={(e) => { setSemesterFilter(e.target.value); setClassForm((prev) => ({ ...prev, subjectId: "" })); }} className="w-full border rounded-lg p-2 text-xs bg-white">
                 <option value="">All Semesters</option>
                 {[1,2,3,4,5,6,7,8,9,10].map((sem) => <option key={sem} value={sem}>Semester {sem}</option>)}
               </select>
@@ -537,19 +601,20 @@ export default function AdminTimetablePanel({ onClose }) {
                   <div><label className="text-[10px] font-bold text-gray-600">End</label><input type="time" value={classForm.endTime} onChange={(e) => setClassForm({ ...classForm, endTime: e.target.value })} className="w-full border rounded-lg p-2 text-xs" required /></div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div className="rounded-lg border border-orange-100 bg-orange-50 px-3 py-2 text-[11px] text-orange-800">
+                  Course: <strong>{selectedCourse?.courseName || "Select at top"}</strong> · Semester: <strong>{semesterFilter || "Select at top"}</strong> · Division: <strong>{divisionFilter || "Select at top"}</strong>. These values are taken from the filters above.
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div><label className="text-[10px] font-bold text-gray-600">Type</label><select value={classForm.type} onChange={(e) => setClassForm({ ...classForm, type: e.target.value, subjectId: e.target.value === "Break" ? "" : classForm.subjectId })} className="w-full border rounded-lg p-2 text-xs">{ENTRY_TYPES.map((type) => <option key={type}>{type}</option>)}</select></div>
-                  <div><label className="text-[10px] font-bold text-gray-600">Course</label><select value={classForm.courseId} onChange={(e) => setClassForm({ ...classForm, courseId: e.target.value, subjectId: "" })} className="w-full border rounded-lg p-2 text-xs" required><option value="">Select course</option>{courses.map((c) => <option key={c._id} value={c._id}>{c.courseName}</option>)}</select></div>
-                  <div><label className="text-[10px] font-bold text-gray-600">Semester</label><select value={classForm.semester} onChange={(e) => setClassForm({ ...classForm, semester: Number(e.target.value), subjectId: "" })} className="w-full border rounded-lg p-2 text-xs">{[1,2,3,4,5,6,7,8,9,10].map((sem) => <option key={sem} value={sem}>{sem}</option>)}</select></div>
-                  <div><label className="text-[10px] font-bold text-gray-600">Division</label><select value={classForm.division} onChange={(e) => setClassForm({ ...classForm, division: e.target.value })} className="w-full border rounded-lg p-2 text-xs" required><option value="">Select division</option>{classDivisionOptions.map(d => <option key={d._id} value={d.name}>{d.name}</option>)}</select></div>
+                  <div><label className="text-[10px] font-bold text-gray-600">Selected department</label><input value={selectedDepartmentName ? selectedCourse.department.departmentName : "Select course at top"} readOnly className="w-full border rounded-lg p-2 text-xs bg-gray-50" /></div>
                 </div>
 
                 {classForm.type !== "Break" && (
-                  <div><label className="text-[10px] font-bold text-gray-600">Subject</label><select value={classForm.subjectId} onChange={(e) => setClassForm({ ...classForm, subjectId: e.target.value })} className="w-full border rounded-lg p-2 text-xs" required><option value="">Select subject</option>{subjects.filter((s) => String(s.course?._id || s.course) === String(classForm.courseId) && Number(s.semester) === Number(classForm.semester)).map((s) => <option key={s._id} value={s._id}>{s.subjectName} ({s.subjectCode})</option>)}</select></div>
+                  <div><label className="text-[10px] font-bold text-gray-600">Subject</label><select value={classForm.subjectId} onChange={(e) => setClassForm({ ...classForm, subjectId: e.target.value })} className="w-full border rounded-lg p-2 text-xs" required><option value="">Select subject</option>{filteredSubjects.map((s) => <option key={s._id} value={s._id}>{s.subjectName} ({s.subjectCode})</option>)}</select></div>
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div><label className="text-[10px] font-bold text-gray-600">Teacher</label><select value={classForm.teacherId} onChange={(e) => setClassForm({ ...classForm, teacherId: e.target.value })} className="w-full border rounded-lg p-2 text-xs"><option value="">No teacher selected</option>{teachers.map((t) => <option key={t._id} value={t._id}>{t.name} ({t.id_no})</option>)}</select></div>
+                  <div><label className="text-[10px] font-bold text-gray-600">Teacher</label><select value={classForm.teacherId} onChange={(e) => setClassForm({ ...classForm, teacherId: e.target.value })} className="w-full border rounded-lg p-2 text-xs" disabled={!courseFilter}><option value="">No teacher selected</option>{filteredTeachers.map((t) => <option key={t._id} value={t._id}>{t.name} ({t.id_no})</option>)}</select></div>
                   <div><label className="text-[10px] font-bold text-gray-600">Room</label><select value={classForm.roomId} onChange={(e) => setClassForm({ ...classForm, roomId: e.target.value })} className="w-full border rounded-lg p-2 text-xs"><option value="">No room selected</option>{classrooms.filter((r) => r.active).map((r) => <option key={r._id} value={r._id}>{r.roomCode} — {r.roomName}</option>)}</select></div>
                 </div>
 
@@ -605,7 +670,7 @@ export default function AdminTimetablePanel({ onClose }) {
                     <div><label className="text-[10px] font-bold text-gray-600">Course</label><select value={changeForm.courseId} onChange={(e) => setChangeForm({ ...changeForm, courseId: e.target.value, subjectId: "" })} className="w-full border rounded-lg p-2 text-xs"><option value="">Select course</option>{courses.map((c) => <option key={c._id} value={c._id}>{c.courseName}</option>)}</select></div>
                     <div><label className="text-[10px] font-bold text-gray-600">Semester</label><select value={changeForm.semester} onChange={(e) => setChangeForm({ ...changeForm, semester: Number(e.target.value), subjectId: "" })} className="w-full border rounded-lg p-2 text-xs">{[1,2,3,4,5,6,7,8,9,10].map((sem) => <option key={sem} value={sem}>{sem}</option>)}</select></div>
                     <div><label className="text-[10px] font-bold text-gray-600">Division</label><select value={changeForm.division} onChange={(e) => setChangeForm({ ...changeForm, division: e.target.value })} className="w-full border rounded-lg p-2 text-xs"><option value="">Select division</option>{changeDivisionOptions.map(d => <option key={d._id} value={d.name}>{d.name}</option>)}</select></div>
-                    <div><label className="text-[10px] font-bold text-gray-600">Subject</label><select value={changeForm.subjectId} onChange={(e) => setChangeForm({ ...changeForm, subjectId: e.target.value })} className="w-full border rounded-lg p-2 text-xs"><option value="">Select subject</option>{subjects.filter((s) => String(s.course?._id || s.course) === String(changeForm.courseId) && Number(s.semester) === Number(changeForm.semester)).map((s) => <option key={s._id} value={s._id}>{s.subjectName}</option>)}</select></div>
+                    <div><label className="text-[10px] font-bold text-gray-600">Subject</label><select value={changeForm.subjectId} onChange={(e) => setChangeForm({ ...changeForm, subjectId: e.target.value })} className="w-full border rounded-lg p-2 text-xs"><option value="">Select subject</option>{filteredSubjects.map((s) => <option key={s._id} value={s._id}>{s.subjectName} ({s.subjectCode})</option>)}</select></div>
                   </div>
                 )}
 

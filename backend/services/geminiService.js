@@ -1,8 +1,10 @@
 const { GoogleGenAI } = require("@google/genai");
 const fs = require("fs");
 
+const GEMINI_API_KEY = String(process.env.GEMINI_API_KEY || "").trim();
+
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
+  apiKey: GEMINI_API_KEY,
 });
 
 const PRIMARY_MODEL = "gemini-3.8-flash";
@@ -26,6 +28,12 @@ const isRetryableError = (error) => {
 };
 
 const generateWithRetry = async (requestBuilder) => {
+  if (!GEMINI_API_KEY) {
+    throw new Error(
+      "Gemini API key is missing. Add a valid GEMINI_API_KEY to backend/.env and restart the backend."
+    );
+  }
+
   const models = [PRIMARY_MODEL, FALLBACK_MODEL];
   let lastError = null;
 
@@ -44,6 +52,13 @@ const generateWithRetry = async (requestBuilder) => {
           `Gemini error: model=${model}, attempt=${attempt}`,
           error?.message || error
         );
+
+        const errorMessage = String(error?.message || "");
+        if (/api key not valid|invalid api key|api_key_invalid|permission denied/i.test(errorMessage)) {
+          throw new Error(
+            "Gemini API key is invalid or does not have Gemini API access. Create a valid key in Google AI Studio, update GEMINI_API_KEY in backend/.env, then restart the backend."
+          );
+        }
 
         if (!isRetryableError(error)) {
           throw error;

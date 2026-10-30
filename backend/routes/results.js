@@ -669,9 +669,22 @@ router.patch("/teacher/:id/cec", requireRole("teacher"), async (req, res) => {
 /* ===================== STUDENT ===================== */
 router.get("/student", requireRole("student"), async (req, res) => {
   try {
-    const results = await populateResult(
-      Result.find({ student: req.user.id, status: "published" }).sort({ semester: 1, subject: 1 })
-    ).lean();
+    // Student view only: ignore published records whose Subject reference is
+    // missing, so hidden legacy rows cannot inflate marks, credits or SGPA.
+    const [student, populatedResults] = await Promise.all([
+      getCurrentUser(req.user.id),
+      populateResult(
+        Result.find({ student: req.user.id, status: "published" }).sort({ semester: 1, subject: 1 })
+      ).lean(),
+    ]);
+
+    if (!student) {
+      return res.status(404).json({ message: "Student account was not found." });
+    }
+
+    const results = populatedResults.filter(
+      (row) => row.subject && (row.subject.subjectCode || row.subject.subjectName)
+    );
 
     const bySemester = new Map();
     for (const row of results) {
@@ -699,6 +712,7 @@ router.get("/student", requireRole("student"), async (req, res) => {
     const overallCredits = results.reduce((s, r) => s + Number(r.credit || 0), 0);
     const overallGpe = results.reduce((s, r) => s + Number(r.gpe || 0), 0);
     res.json({
+      student,
       results,
       semesters,
       cgpa: overallCredits ? round2(overallGpe / overallCredits) : 0,

@@ -3,6 +3,15 @@ import axios from "axios";
 
 const API_BASE = "http://localhost:5000";
 
+// Use the browser's local date so the date input never offers past days.
+const getTodayLocalDate = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const authConfig = () => ({
   headers: {
     Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
@@ -74,6 +83,9 @@ export default function StudentCounselingPanel({ onClose }) {
     const requestedEnd = new Date(`${form.date}T${form.endTime}`);
     if (Number.isNaN(requestedStart.getTime()) || Number.isNaN(requestedEnd.getTime())) {
       return alert("Please provide a valid date and time.");
+    }
+    if (requestedStart.getTime() <= Date.now()) {
+      return alert("Past date or time cannot be selected. Please choose a future appointment time.");
     }
 
     try {
@@ -164,6 +176,7 @@ export default function StudentCounselingPanel({ onClose }) {
                     {teacher.name} {teacher.department ? `• ${teacher.department}` : ""}
                   </option>
                 ))}
+                {teachers.length === 0 && <option value="" disabled>No faculty found in your department</option>}
               </select>
             </div>
 
@@ -195,8 +208,15 @@ export default function StudentCounselingPanel({ onClose }) {
                 <label className="text-xs font-semibold text-gray-600 block mb-1">Date</label>
                 <input
                   type="date"
+                  min={getTodayLocalDate()}
                   value={form.date}
-                  onChange={(e) => setForm({ ...form, date: e.target.value })}
+                  onChange={(e) => {
+                    const selectedDate = e.target.value;
+                    if (selectedDate && selectedDate < getTodayLocalDate()) {
+                      return alert("Past dates are not available. Please choose today or a future date.");
+                    }
+                    setForm({ ...form, date: selectedDate });
+                  }}
                   className="w-full border rounded-lg p-2 text-sm bg-white outline-none"
                 />
               </div>

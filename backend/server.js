@@ -27,6 +27,7 @@ app.use("/api/notifications", require("./routes/notifications"));
 app.use("/api/study-planner", require("./routes/studyPlanner"));
 app.use("/api/campus-notices", require("./routes/campusNotices"));
 app.use("/api/helpdesk-staff", require("./routes/helpdeskStaff"));
+app.use("/api/counseling", require("./routes/counseling"));
 
 app.get("/", (req, res) => res.json({ message: "CampusCore Backend API Running 🚀" }));
 app.use((req, res) => res.status(404).json({ message: "API route not found" }));

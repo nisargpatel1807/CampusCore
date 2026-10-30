@@ -2,6 +2,7 @@ const router = require("express").Router();
 const mongoose = require("mongoose");
 const User = require("../models/user");
 const Course = require("../models/course.JS");
+const Department = require("../models/Department");
 const Subject = require("../models/Subject");
 const Notification = require("../models/Notification");
 const Classroom = require("../models/Classroom");
@@ -14,6 +15,36 @@ const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 const ENTRY_TYPES = ["Lecture", "Lab", "Practical", "Seminar", "Workshop", "Activity", "Break", "Other"];
 const CHANGE_TYPES = ["Room Change", "Time Change", "Teacher Change", "Cancelled", "Extra Class", "Other"];
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+const normalizeDepartment = (value) => clean(value).toLowerCase().replace(/\s+/g, " ");
+
+const validateTeacherForCourse = async (course, teacherId) => {
+  if (!teacherId) return { valid: true, teacher: null };
+  if (!isObjectId(teacherId)) return { valid: false, message: "Invalid teacher." };
+
+  const teacher = await User.findOne({ _id: teacherId, role: "teacher", status: true }).lean();
+  if (!teacher) return { valid: false, message: "Selected teacher is invalid or inactive." };
+
+  let department = null;
+  if (course?.department) {
+    department = await Department.findById(course.department).select("departmentName departmentCode").lean();
+  }
+
+  // Older course records may not have a department reference. Keep the agreed course mapping as fallback.
+  let allowedNames = department
+    ? [department.departmentName, department.departmentCode]
+    : [];
+  if (!allowedNames.length) {
+    const courseKey = `${clean(course?.courseName)} ${clean(course?.courseCode)}`.toLowerCase();
+    if (/\bbba\b|\bmba\b/.test(courseKey)) allowedNames = ["Management"];
+    else if (/\bbca\b|\bmca\b/.test(courseKey)) allowedNames = ["Computer Application"];
+  }
+
+  if (!allowedNames.length || !allowedNames.some((name) => normalizeDepartment(name) === normalizeDepartment(teacher.department))) {
+    return { valid: false, message: `Selected teacher must belong to ${department?.departmentName || allowedNames[0] || "the selected course"} department.` };
+  }
+  return { valid: true, teacher };
+};
 
 const clean = (value) => String(value ?? "").trim();
 const isObjectId = (value) => mongoose.isValidObjectId(value);
@@ -311,9 +342,8 @@ router.post("/entries", requireRole("admin"), async (req, res) => {
     }
 
     if (teacherId) {
-      if (!isObjectId(teacherId)) return res.status(400).json({ message: "Invalid teacher." });
-      const teacher = await User.findOne({ _id: teacherId, role: "teacher", status: true }).lean();
-      if (!teacher) return res.status(400).json({ message: "Selected teacher is invalid or inactive." });
+      const teacherCheck = await validateTeacherForCourse(course, teacherId);
+      if (!teacherCheck.valid) return res.status(400).json({ message: teacherCheck.message });
     }
 
     if (roomId) {
@@ -377,9 +407,8 @@ router.put("/entries/:id", requireRole("admin"), async (req, res) => {
     }
 
     if (updated.teacher) {
-      if (!isObjectId(updated.teacher)) return res.status(400).json({ message: "Invalid teacher." });
-      const teacher = await User.findOne({ _id: updated.teacher, role: "teacher", status: true }).lean();
-      if (!teacher) return res.status(400).json({ message: "Selected teacher is invalid or inactive." });
+      const teacherCheck = await validateTeacherForCourse(course, updated.teacher);
+      if (!teacherCheck.valid) return res.status(400).json({ message: teacherCheck.message });
     }
     if (updated.room) {
       if (!isObjectId(updated.room)) return res.status(400).json({ message: "Invalid classroom." });
@@ -457,9 +486,8 @@ router.post("/changes", requireRole("admin"), async (req, res) => {
     }
 
     if (newTeacher) {
-      if (!isObjectId(newTeacher)) return res.status(400).json({ message: "Invalid replacement teacher." });
-      const teacher = await User.findOne({ _id: newTeacher, role: "teacher", status: true }).lean();
-      if (!teacher) return res.status(400).json({ message: "Replacement teacher is invalid or inactive." });
+      const teacherCheck = await validateTeacherForCourse(course, newTeacher);
+      if (!teacherCheck.valid) return res.status(400).json({ message: teacherCheck.message.replace("Selected teacher", "Replacement teacher") });
     }
 
     if (newRoom) {
@@ -474,6 +502,10 @@ router.post("/changes", requireRole("admin"), async (req, res) => {
       const subjectId = clean(req.body.subjectId);
       const teacherId = newTeacher || clean(req.body.teacherId);
       const roomId = newRoom || clean(req.body.roomId);
+      if (teacherId && !newTeacher) {
+        const teacherCheck = await validateTeacherForCourse(course, teacherId);
+        if (!teacherCheck.valid) return res.status(400).json({ message: teacherCheck.message });
+      }
       if (!isObjectId(subjectId)) return res.status(400).json({ message: "Subject is required for an extra class." });
       const subject = await Subject.findById(subjectId).lean();
       if (!subject || String(subject.course) !== String(courseId) || Number(subject.semester) !== semester) return res.status(400).json({ message: "Extra class subject does not match the selected course/semester." });
