@@ -4,13 +4,15 @@ const path = require("path");
 const fs = require("fs");
 require("dotenv").config();
 const connectDB = require("./db");
+const feesRoutes = require("./routes/fees");
 
 const app = express();
 const uploadDir = path.join(__dirname, "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-connectDB();
 
 app.use(cors({ origin: true, credentials: true }));
+// Razorpay signs the exact raw request body. This route must run before express.json().
+app.post("/api/fees/razorpay/webhook", express.raw({ type: "application/json" }), feesRoutes.handleRazorpayWebhook);
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use("/uploads", express.static(uploadDir, { fallthrough: true, maxAge: "1d" }));
@@ -24,10 +26,10 @@ app.use("/api/timetable", require("./routes/timetable"));
 app.use("/api/teacher", require("./routes/teacher"));
 app.use("/api/student", require("./routes/student"));
 app.use("/api/notifications", require("./routes/notifications"));
+app.use("/api/fees", feesRoutes);
 app.use("/api/study-planner", require("./routes/studyPlanner"));
 app.use("/api/campus-notices", require("./routes/campusNotices"));
 app.use("/api/helpdesk-staff", require("./routes/helpdeskStaff"));
-app.use("/api/counseling", require("./routes/counseling"));
 
 app.get("/", (req, res) => res.json({ message: "CampusCore Backend API Running 🚀" }));
 app.use((req, res) => res.status(404).json({ message: "API route not found" }));
@@ -38,6 +40,10 @@ app.use((err, req, res, next) => {
   if (err.name === "MulterError") return res.status(400).json({ message: err.message || "File upload failed." });
   return res.status(err.status || 500).json({ message: err.message || "Internal Server Error" });
 });
+
+connectDB()
+  .then(() => feesRoutes.startReminderScheduler())
+  .catch((error) => console.error("Fees reminder scheduler could not start:", error));
 
 const PORT = Number(process.env.PORT) || 5000;
 app.listen(PORT, () => console.log(`CampusCore Server running on port ${PORT}`));

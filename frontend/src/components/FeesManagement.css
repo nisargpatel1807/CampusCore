@@ -1,0 +1,239 @@
+/* CampusCore Fees Management — polished, responsive fee workspace */
+.cc-fees {
+  --fee-ink: #172033;
+  --fee-muted: #64748b;
+  --fee-border: #e2e8f0;
+  --fee-surface: #ffffff;
+  --fee-soft: #f8fafc;
+  --fee-blue: #2454d6;
+  --fee-blue-dark: #1d45b8;
+  color: var(--fee-ink);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  font-size: 14px;
+}
+.cc-fees * { box-sizing: border-box; }
+.cc-fees h2, .cc-fees h3, .cc-fees h4, .cc-fees h5, .cc-fees p { margin-top: 0; }
+.cc-fees h2 { margin-bottom: 7px; font-size: 25px; line-height: 1.2; font-weight: 800; letter-spacing: -.025em; color: var(--fee-ink); }
+.cc-fees h3 { margin-bottom: 7px; font-size: 17px; line-height: 1.35; font-weight: 750; color: var(--fee-ink); }
+.cc-fees h4 { margin: 0; font-size: 14px; font-weight: 750; }
+.cc-fees h5 { margin: 0; font-size: 14px; font-weight: 750; }
+.cc-fees p { margin-bottom: 0; }
+.cc-fees small { display: block; color: var(--fee-muted); font-size: 12px; }
+.cc-fees label { display: flex; flex-direction: column; gap: 7px; color: #344256; font-size: 13px; font-weight: 650; min-width: 0; }
+.cc-fees input:not([type=checkbox]):not([type=radio]), .cc-fees select {
+  width: 100%; min-width: 0; min-height: 42px; padding: 10px 12px; border: 1px solid #d5deea;
+  border-radius: 10px; background: #fff; color: var(--fee-ink); font: inherit; transition: border-color .15s, box-shadow .15s;
+}
+.cc-fees input::placeholder { color: #9aa7b8; }
+.cc-fees input:focus, .cc-fees select:focus { outline: none; border-color: #8db1ff; box-shadow: 0 0 0 3px rgba(59,130,246,.13); }
+.cc-fees button, .cc-fees a { font: inherit; }
+.cc-fees button { cursor: pointer; }
+.cc-fees button:disabled { cursor: not-allowed; opacity: .58; }
+
+.cc-fee-hero { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 22px 24px; border: 1px solid #e0e8f4; border-radius: 17px; background: linear-gradient(115deg, #f8fbff 0%, #ffffff 62%, #f5f8ff 100%); }
+.cc-fee-hero p { color: var(--fee-muted); font-size: 13px; line-height: 1.55; }
+.cc-fee-eyebrow, .cc-fee-kicker { display: inline-flex; align-items: center; gap: 8px; color: #62718a; font-size: 10px; font-weight: 800; letter-spacing: .11em; }
+.cc-fee-eyebrow { margin-bottom: 9px; }
+.cc-fee-live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #16a36a; box-shadow: 0 0 0 3px rgba(22,163,106,.12); }
+.cc-fee-hero-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; }
+.cc-fee-mode-badge, .cc-fee-count-pill { display: inline-flex; align-items: center; padding: 7px 10px; border-radius: 999px; background: #eff6ff; color: #2454d6; font-size: 11px; font-weight: 750; white-space: nowrap; }
+.cc-fee-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 39px; padding: 9px 13px; border: 1px solid transparent; border-radius: 10px; font-size: 13px; line-height: 1.2; font-weight: 700; text-decoration: none; transition: background .15s, border-color .15s, transform .15s; }
+.cc-fee-button:not(:disabled):active { transform: translateY(1px); }
+.cc-fee-button.primary { border-color: var(--fee-blue); background: var(--fee-blue); color: #fff; }
+.cc-fee-button.primary:hover:not(:disabled) { background: var(--fee-blue-dark); }
+.cc-fee-button.secondary { border-color: #d7e0ed; background: #fff; color: #334155; }
+.cc-fee-button.secondary:hover:not(:disabled) { background: #f8fafc; border-color: #b9c7da; }
+.cc-fee-button.danger { border-color: #fecdd3; background: #fff1f2; color: #be123c; }
+.cc-fee-button.compact { min-height: 33px; padding: 7px 10px; font-size: 12px; }
+.cc-fee-message { padding: 12px 15px; border: 1px solid #bfdbfe; border-radius: 11px; background: #eff6ff; color: #1e40af; font-size: 13px; line-height: 1.5; }
+.cc-fee-message.error { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+.cc-fee-message.success { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+
+.cc-fee-stats { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 12px; }
+.cc-fee-stats article { position: relative; min-width: 0; padding: 16px 16px 14px; border: 1px solid var(--fee-border); border-radius: 14px; background: var(--fee-surface); box-shadow: 0 2px 8px rgba(15,23,42,.025); }
+.cc-fee-stats article small { margin-top: 9px; color: #708098; font-size: 12px; font-weight: 650; }
+.cc-fee-stats article strong { display: block; margin-top: 5px; color: #172033; font-size: 21px; line-height: 1.25; font-weight: 800; overflow-wrap: anywhere; }
+.cc-fee-stats article em { display: block; margin-top: 5px; color: #94a0b0; font-size: 10px; font-style: normal; }
+.cc-fee-stat-icon { display: inline-flex; align-items: center; justify-content: center; width: 29px; height: 29px; border-radius: 9px; font-size: 14px; font-weight: 800; }
+.cc-fee-stat-icon.indigo { color: #3f51b5; background: #eef0ff; }
+.cc-fee-stat-icon.green { color: #13865d; background: #e8f8f1; }
+.cc-fee-stat-icon.amber { color: #b7791f; background: #fff6e5; }
+.cc-fee-stat-icon.red { color: #c24141; background: #fff0f0; }
+.cc-fee-stat-icon.blue { color: #2563eb; background: #eaf2ff; }
+
+.cc-fee-card { min-width: 0; padding: 19px; border: 1px solid var(--fee-border); border-radius: 15px; background: var(--fee-surface); box-shadow: 0 2px 8px rgba(15,23,42,.025); }
+.cc-fee-section-head, .cc-fee-card-title, .cc-fee-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.cc-fee-section-head { margin-bottom: 13px; }
+.cc-fee-section-head .cc-fee-help { margin-bottom: 0 !important; }
+.cc-fee-help { margin: 5px 0 12px !important; color: var(--fee-muted); font-size: 12px; line-height: 1.55; }
+.cc-fee-count-pill { background: #f1f5f9; color: #475569; }
+.cc-fee-summary-card { padding-bottom: 12px; }
+.cc-fee-table-wrap { width: 100%; overflow: auto; border: 1px solid #e5eaf1; border-radius: 11px; }
+.cc-fee-table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 970px; font-size: 12px; }
+.cc-fee-table th, .cc-fee-table td { padding: 12px 12px; border-bottom: 1px solid #edf1f6; text-align: left; vertical-align: middle; color: #344256; }
+.cc-fee-table th { position: sticky; top: 0; z-index: 1; background: #f8fafc; color: #617089; font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+.cc-fee-table tbody tr:last-child td { border-bottom: 0; }
+.cc-fee-table tbody tr:hover td { background: #fbfdff; }
+.cc-fee-table td strong { color: #1e293b; font-weight: 750; }
+.cc-fee-table td small { margin-top: 4px; font-size: 10px; }
+.cc-fee-table details { min-width: 180px; }
+.cc-fee-table details summary { color: #2454d6; font-weight: 700; cursor: pointer; }
+.cc-fee-table details p { margin: 7px 0 0 !important; color: #64748b; font-size: 11px; line-height: 1.45; }
+.cc-fee-positive { color: #14845b !important; font-weight: 750; }
+.cc-fee-warning { color: #b7791f !important; font-weight: 750; }
+.cc-fee-progress { width: 70px; height: 6px; margin-bottom: 5px; overflow: hidden; border-radius: 99px; background: #e9eef5; }
+.cc-fee-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#2454d6,#4f8df7); }
+.cc-fee-link-button { border: 0; padding: 3px 0; background: transparent; color: #2454d6; font-size: 11px; font-weight: 750; white-space: nowrap; }
+.cc-fee-link-button:hover { text-decoration: underline; }
+.cc-fee-empty { padding: 22px !important; text-align: center !important; color: #8592a5 !important; }
+
+.cc-fee-admin-grid { display: grid; grid-template-columns: minmax(0,1.35fr) minmax(270px,.65fr); gap: 16px; align-items: start; }
+.cc-fee-assign-card { padding: 20px; }
+.cc-fee-card-title { align-items: flex-start; }
+.cc-fee-step-badge, .cc-fee-subsection-title span { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: 0 0 auto; border-radius: 9px; background: #eff4ff; color: #2454d6; font-size: 11px; font-weight: 800; }
+.cc-fee-field-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin: 14px 0; }
+.cc-fee-field-full { grid-column: 1 / -1; }
+.cc-fee-student-picker { margin: 16px 0; padding: 13px; border: 1px solid #e5eaf1; border-radius: 12px; background: #fbfcfe; }
+.cc-fee-picker-head { align-items: center; }
+.cc-fee-picker-head strong { color: #243247; font-size: 13px; }
+.cc-fee-picker-head small { margin-top: 3px; }
+.cc-fee-search-input { margin: 12px 0 9px; }
+.cc-fee-student-list { max-height: 205px; overflow-y: auto; padding: 4px 8px; border: 1px solid #e5eaf1; border-radius: 9px; background: #fff; }
+.cc-fee-student-option { display: flex !important; flex-direction: row !important; align-items: flex-start; gap: 10px; padding: 9px 4px; border-bottom: 1px solid #f0f3f7; font-size: 12px !important; font-weight: 450 !important; cursor: pointer; }
+.cc-fee-student-option:last-child { border-bottom: 0; }
+.cc-fee-student-option input, .cc-fee-assignment-mode input { width: 16px; height: 16px; margin: 2px 0 0; flex: 0 0 auto; accent-color: #2454d6; }
+.cc-fee-student-option span { min-width: 0; }
+.cc-fee-student-option strong { display: block; color: #28364a; font-size: 12px; font-weight: 750; }
+.cc-fee-student-option small { margin-top: 3px; font-size: 10px; }
+.cc-fee-assignment-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 11px; }
+.cc-fee-assignment-mode label { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; min-height: 60px; padding: 10px; border: 1px solid #e2e8f0; border-radius: 9px; background: #fff; cursor: pointer; }
+.cc-fee-assignment-mode label:has(input:checked) { border-color: #9db9ff; background: #f6f9ff; }
+.cc-fee-assignment-mode span { display: flex; flex-direction: column; gap: 3px; }
+.cc-fee-assignment-mode strong { color: #344256; font-size: 11px; }
+.cc-fee-assignment-mode small { font-size: 10px; line-height: 1.4; }
+.cc-fee-subsection-title { display: flex; justify-content: space-between; align-items: center; margin: 20px 0 7px; padding-top: 17px; border-top: 1px solid #edf1f6; }
+.cc-fee-subsection-title h4 { color: #26354a; }
+.cc-fee-subsection-title span { width: 24px; height: 24px; font-size: 10px; }
+.cc-fee-section-head h4 { color: #27364a; font-size: 13px; }
+.cc-fee-edit-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(120px,.48fr) auto; gap: 8px; margin: 8px 0; }
+.cc-fee-installment-row { grid-template-columns: minmax(0,1fr) minmax(110px,.42fr) minmax(145px,.58fr) auto; }
+.cc-fee-remove-button { align-self: center; border: 1px solid #fecaca; border-radius: 8px; padding: 8px 9px; background: #fff7f7; color: #b91c1c; font-size: 11px; font-weight: 700; }
+.cc-fee-total-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding: 11px 13px; border-radius: 9px; background: #f6f8fb; color: #536177; font-size: 12px; }
+.cc-fee-total-line strong { color: #172033; font-size: 14px; }
+.cc-fee-total-line.valid { background: #effaf4; color: #166534; }
+.cc-fee-total-line.invalid { background: #fff7ed; color: #9a3412; }
+.cc-fee-assign-button { width: 100%; min-height: 45px; margin-top: 15px; }
+.cc-fee-side-column { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.cc-fee-gateway-card { position: relative; overflow: hidden; border-color: #dbe6ff; background: linear-gradient(150deg,#f5f8ff 0%,#fff 72%); }
+.cc-fee-gateway-mark { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; margin-bottom: 15px; border-radius: 12px; background: #e8efff; color: #2454d6; font-size: 22px; font-weight: 800; }
+.cc-fee-gateway-card h3 { margin-top: 6px; }
+.cc-fee-gateway-card>p { color: #697991; font-size: 12px; line-height: 1.6; }
+.cc-fee-gateway-list { display: grid; gap: 9px; margin: 16px 0; color: #3c526e; font-size: 11px; font-weight: 650; }
+.cc-fee-gateway-list span::first-letter { color: #13865d; }
+.cc-fee-gateway-state { display: flex; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid #e6edf8; color: #35715b; font-size: 11px; font-weight: 750; }
+.cc-fee-quick-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #edf1f6; font-size: 11px; }
+.cc-fee-quick-row span { color: #718096; }
+.cc-fee-quick-row strong { max-width: 62%; text-align: right; color: #29384d; overflow-wrap: anywhere; }
+.cc-fee-quick-card .cc-fee-help { margin-top: 12px !important; margin-bottom: 0 !important; }
+
+.cc-fee-report-filters { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin: 13px 0; }
+.cc-fee-report-filters label { font-size: 11px; }
+.cc-fee-report-filters .cc-fee-button { align-self: end; }
+.cc-fee-report-summary { display: flex; justify-content: space-between; gap: 14px; padding: 10px 0; color: #59677b; font-size: 12px; }
+.cc-fee-report-summary strong { color: #25344a; }
+.cc-fee-status { display: inline-flex; align-items: center; border-radius: 99px; padding: 5px 9px; background: #f1f5f9; color: #475569; font-size: 9px; font-weight: 850; letter-spacing: .04em; white-space: nowrap; }
+.cc-fee-status.paid { background: #dcfce7; color: #166534; }
+.cc-fee-status.partial { background: #fef3c7; color: #92400e; }
+.cc-fee-status.pending, .cc-fee-status.initiated { background: #dbeafe; color: #1e40af; }
+.cc-fee-status.overdue, .cc-fee-status.failed, .cc-fee-status.rejected { background: #fee2e2; color: #991b1b; }
+
+/* Student account */
+.cc-student-fees { gap: 18px; }
+.cc-fee-student-hero { align-items: center; }
+.cc-fee-student-context { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: #56677f; font-size: 11px; font-weight: 650; }
+.cc-fee-student-context span { color: #a0aec0; }
+.cc-fee-student-stats { grid-template-columns: repeat(4,minmax(0,1fr)); }
+.cc-fee-notice-card { padding: 17px; border: 1px solid #dce8fb; border-radius: 14px; background: #f7faff; }
+.cc-fee-notice-scroll { display: flex; flex-direction: column; gap: 8px; max-height: 190px; overflow-y: auto; padding-right: 3px; }
+.cc-fee-notice { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 13px; border: 1px solid #e1eaf8; border-radius: 10px; background: #fff; }
+.cc-fee-notice>div { display: flex; flex-direction: column; gap: 4px; }
+.cc-fee-notice strong { color: #344256; font-size: 12px; }
+.cc-fee-notice span, .cc-fee-notice small { color: #718096; font-size: 11px; }
+.cc-fee-notice b { color: #25344a; font-size: 13px; text-align: right; }
+.cc-fee-notice>div:last-child { align-items: flex-end; }
+.cc-fee-notice.overdue { border-color: #fecaca; background: #fffafa; }
+.cc-fee-notice.urgent { border-color: #fed7aa; background: #fffdf7; }
+.cc-fee-checkout-banner { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 19px 21px; border: 1px solid #d9e5ff; border-radius: 14px; background: linear-gradient(110deg,#f2f6ff 0%,#fbfdff 100%); }
+.cc-fee-checkout-banner h3 { margin: 6px 0; }
+.cc-fee-checkout-banner p { max-width: 650px; color: #687891; font-size: 12px; line-height: 1.55; }
+.cc-fee-checkout-points { display: grid; gap: 8px; min-width: 205px; color: #3f5d83; font-size: 11px; font-weight: 700; }
+.cc-fee-student-invoices-section .cc-fee-section-head { margin-bottom: 12px; }
+.cc-fee-invoice-list { display: grid; gap: 13px; }
+.cc-fee-invoice-card { padding: 18px; border: 1px solid #e0e7f0; border-radius: 14px; background: #fff; box-shadow: 0 2px 8px rgba(15,23,42,.025); }
+.cc-fee-invoice-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.cc-fee-invoice-label { display: inline-flex; margin-bottom: 6px; color: #7890b1; font-size: 9px; font-weight: 850; letter-spacing: .1em; }
+.cc-fee-invoice-head h4 { font-size: 15px; }
+.cc-fee-invoice-head p { margin-top: 5px; color: #718096; font-size: 11px; }
+.cc-fee-invoice-head p span { margin: 0 4px; color: #a0aec0; }
+.cc-fee-invoice-amounts { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin: 14px 0; padding: 13px; border-radius: 11px; background: #f8fafc; }
+.cc-fee-invoice-amounts small { color: #78869a; font-size: 10px; }
+.cc-fee-invoice-amounts strong { display: block; margin-top: 5px; color: #26364c; font-size: 16px; }
+.cc-fee-component-details { margin: 10px 0; color: #48586e; font-size: 11px; }
+.cc-fee-component-details summary { width: fit-content; color: #2454d6; font-weight: 700; cursor: pointer; }
+.cc-fee-component-details>div { display: grid; gap: 4px; max-width: 520px; margin-top: 8px; padding: 9px 12px; border-radius: 8px; background: #f8fafc; }
+.cc-fee-component-details p { display: flex; justify-content: space-between; gap: 20px; color: #64748b; }
+.cc-fee-component-details strong { color: #27364a; }
+.cc-fee-installments { margin-top: 12px; padding-top: 12px; border-top: 1px solid #edf1f6; }
+.cc-fee-installments>strong { display: block; margin-bottom: 4px; color: #344256; font-size: 12px; }
+.cc-fee-installment { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px dashed #e5eaf1; color: #45556b; font-size: 11px; }
+.cc-fee-installment:last-child { border-bottom: 0; }
+.cc-fee-installment span:last-child { text-align: right; font-weight: 700; }
+.cc-fee-installment small { margin-top: 4px; font-size: 10px; font-weight: 450; }
+.cc-fee-payment-form { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 14px; padding: 14px; border: 1px solid #e1eaff; border-radius: 11px; background: #f7faff; }
+.cc-fee-payment-form>div:first-child { min-width: 0; }
+.cc-fee-payment-form p { margin-top: 4px; color: #718096; font-size: 10px; line-height: 1.5; }
+.cc-fee-payment-actions { display: flex; align-items: flex-end; gap: 9px; min-width: min(100%,430px); }
+.cc-fee-payment-actions label { min-width: 130px; flex: 1; font-size: 10px; }
+.cc-fee-payment-actions .cc-fee-button { min-height: 42px; white-space: nowrap; }
+.cc-fee-inline-warning { margin-top: 9px; color: #b45309 !important; }
+.cc-fee-paid-banner { margin-top: 13px; padding: 11px 13px; border: 1px solid #bbf7d0; border-radius: 9px; background: #f0fdf4; color: #166534; font-size: 12px; font-weight: 700; }
+.cc-fee-payment-history { padding-bottom: 14px; }
+.cc-fee-empty-card { padding: 22px; border: 1px dashed #d1dae7; border-radius: 12px; background: #fbfcfe; color: #718096; text-align: center; font-size: 12px; }
+
+@media (max-width: 1120px) {
+  .cc-fee-stats { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .cc-fee-admin-grid { grid-template-columns: minmax(0,1fr); }
+  .cc-fee-side-column { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .cc-fee-report-filters { grid-template-columns: repeat(3,minmax(0,1fr)); }
+}
+@media (max-width: 760px) {
+  .cc-fee-hero, .cc-fee-checkout-banner { align-items: flex-start; flex-direction: column; }
+  .cc-fee-hero-actions { justify-content: flex-start; }
+  .cc-fee-stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .cc-fee-field-grid, .cc-fee-report-filters { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .cc-fee-side-column { grid-template-columns: 1fr; }
+  .cc-fee-assignment-mode { grid-template-columns: 1fr; }
+  .cc-fee-payment-form { align-items: stretch; flex-direction: column; }
+  .cc-fee-payment-actions { width: 100%; min-width: 0; }
+}
+@media (max-width: 520px) {
+  .cc-fees { gap: 14px; }
+  .cc-fee-card { padding: 14px; }
+  .cc-fee-hero { padding: 17px; }
+  .cc-fees h2 { font-size: 22px; }
+  .cc-fee-field-grid, .cc-fee-report-filters { grid-template-columns: 1fr; }
+  .cc-fee-field-full { grid-column: auto; }
+  .cc-fee-edit-row, .cc-fee-installment-row { grid-template-columns: 1fr; }
+  .cc-fee-picker-head, .cc-fee-section-head { align-items: flex-start; }
+  .cc-fee-report-summary { align-items: flex-start; flex-direction: column; }
+  .cc-fee-notice { align-items: flex-start; flex-direction: column; }
+  .cc-fee-notice>div:last-child { align-items: flex-start; }
+  .cc-fee-student-context { line-height: 1.5; }
+  .cc-fee-invoice-amounts { grid-template-columns: 1fr 1fr; }
+  .cc-fee-payment-actions { align-items: stretch; flex-direction: column; }
+  .cc-fee-payment-actions .cc-fee-button { width: 100%; white-space: normal; }
+  .cc-fee-table { min-width: 850px; }
+}

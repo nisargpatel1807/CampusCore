@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import NotificationBell from "../components/NotificationBell";
+import AdminFeesPanel from "../components/AdminFeesPanel";
+import "../components/FeesManagement.css";
 import HelpdeskAdminPanel from "../components/HelpdeskAdminPanel";
 import AdminTimetablePanel from "../components/AdminTimetablePanel";
 import DivisionManagementPanel from "../components/DivisionManagementPanel";
@@ -1332,6 +1334,10 @@ body.append(
                 <span className="cc-nav-label">Campus Notices &amp; Events</span>
               </button>
             </div>
+              <button type="button" onClick={() => setActiveModal("feesManagement")} className={`cc-nav-button group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left font-semibold transition-all duration-200 ${activeModal === "feesManagement" ? "bg-white text-orange-900 shadow-lg" : "text-white/90 hover:bg-white/10 hover:text-white"}`}>
+                <span className="cc-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-sm">💳</span>
+                <span className="cc-nav-label">Fees Management</span>
+              </button>
           </nav>
         </div>
 
@@ -3279,6 +3285,7 @@ body.append(
           </div>
         </div>
       )}
+      {activeModal === "feesManagement" && <div className="fixed inset-0 z-40 overflow-y-auto bg-slate-950/60 p-4 md:p-8"><div className="mx-auto max-w-7xl rounded-2xl bg-white p-5 shadow-2xl"><div className="mb-4 flex justify-between"><h2 className="text-xl font-bold">Fees Management</h2><button type="button" onClick={() => setActiveModal(null)} className="rounded-lg border px-3 py-1">Close ✕</button></div><AdminFeesPanel /></div></div>}
     </div>
   );
 }
